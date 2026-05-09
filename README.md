@@ -66,12 +66,9 @@ Triggered when Flesch-Kincaid score falls below 60:
 - Simplifying complex sentences that lookup tables can't handle
 - Generating a 3-bullet TLDR for long dense pages
 
-### 4. Output options
+### 4. Output
 
-- **Side panel** — Restructured content displayed beside the original. Original page untouched. Simplest and safest for v1.
-- **Page overlay** — Replace rendered content on screen with restructured version. Works well for websites and PDFs.
-
-Note: Writing back to the original PDF or .docx file is out of scope for v1.
+- **Page overlay** — Replace rendered content on screen with the restructured version. The original page is never modified — the extension swaps what the browser is showing via DOM manipulation. Works for websites and PDFs.
 
 ---
 
@@ -141,25 +138,84 @@ Run per paragraph, not per page, so only the dense sections trigger an LLM call.
 
 ```
 text-reader-app/
-  frontend/                  ← Chrome extension (React + Vite + CRXJS)
+
+  frontend/                        ← Chrome extension (React + Vite + CRXJS)
     src/
-      popup/                 ← Extension popup UI
-      content/               ← Content scripts (run on web pages)
+
+      shared/                      ← Shared across all extension pieces
+        settings.ts                ← Settings shape, defaults, read/write helpers
+        types.ts                   ← Shared TypeScript types
+
+      content/                     ← Runs on every webpage
+        main.tsx                   ← Injects shadow DOM container into page
+        views/
+          App.tsx                  ← Floating trigger button + page overlay
+          Overlay.tsx              ← Restructured content rendered over the page
+          LineFocus.tsx            ← Line focus mode highlight
+          WordTooltip.tsx          ← Hover tooltip for word simplification
+        hooks/
+          useSettings.ts           ← Listens to chrome.storage for live updates
+          usePageContent.ts        ← Extracts and sends page content to backend
+        utils/
+          readability.ts           ← Readability.js wrapper (strips navbars/ads)
+          domReplacer.ts           ← Swaps page content with restructured version
+          wordScanner.ts           ← Scans page for complex words to underline
+
+      popup/                       ← Click extension icon in toolbar → settings
+        index.html
+        index.tsx
+        views/
+          Popup.tsx                ← Settings UI
+          sections/
+            FontSettings.tsx       ← Font choice (including OpenDyslexia)
+            HighlightSettings.tsx  ← POS colors, keyword bolding
+            ReadingSettings.tsx    ← Line focus, sentence splitting, bullets
+            ImageSettings.tsx      ← Image handling preference
+            Presets.tsx            ← Save and load setting presets
+            TTSSettings.tsx        ← Text-to-speech configuration
+
+      sidepanel/                   ← Pinned to browser → active reading tools
+        index.html
+        index.tsx
+        views/
+          SidePanel.tsx            ← Tools UI
+          sections/
+            TLDR.tsx               ← 3-bullet summary of current page
+            TTSControls.tsx        ← Play, pause, speed, voice controls
+            LineFocus.tsx          ← Toggle and sensitivity for line focus
+            WordTools.tsx          ← Word simplification, hover definitions
+            POSHighlight.tsx       ← Toggle POS highlighting on/off per type
+
+    public/
+      logo.png
     manifest.config.ts
     vite.config.ts
+    package.json
 
-  backend/                   ← Python + FastAPI
-    main.py
+  backend/                         ← Python + FastAPI
+    main.py                        ← Spins up the server
     routes/
-      process.py             ← Text processing endpoints
-      words.py               ← Word lookup / Datamuse endpoints
+      process.py                   ← Text processing endpoints
+      words.py                     ← Word lookup / Datamuse endpoints
     services/
-      extractor.py           ← BeautifulSoup, html2text, PyMuPDF
-      nlp.py                 ← spaCy, Flesch-Kincaid, sentence splitting
-      llm.py                 ← Qwen calls
-      cache.py               ← PostgreSQL caching logic
+      extractor.py                 ← BeautifulSoup, html2text, PyMuPDF
+      nlp.py                       ← spaCy, Flesch-Kincaid, sentence splitting
+      llm.py                       ← Qwen calls
+      cache.py                     ← PostgreSQL caching logic
     models/
-      schemas.py             ← Data shapes (request/response)
+      schemas.py                   ← Data shapes (request/response)
     db/
-      database.py            ← PostgreSQL connection
+      database.py                  ← PostgreSQL connection
 ```
+
+### How the three UI pieces divide responsibilities
+
+| Piece | How accessed | Purpose |
+|---|---|---|
+| Content script | Runs on every page automatically | Page overlay, floating trigger button, word tooltips, line focus |
+| Side panel | Pinned to browser via chrome.sidePanel API | Active reading tools — TTS controls, line focus toggle, word simplification, TLDR, POS highlighting |
+| Popup | Click extension icon in Chrome toolbar | Settings — font choice, color config, feature toggles, presets |
+
+### How settings stay in sync
+
+All three pieces read and write to `chrome.storage.sync` via the helpers in `shared/settings.ts`. The content script listens for storage changes in real time using `chrome.storage.onChanged` — so adjusting a setting in the side panel applies to the page instantly without a reload.
