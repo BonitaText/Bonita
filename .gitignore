@@ -1,0 +1,72 @@
+# ---------- OS / Editor ----------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---------- Env / Secrets ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------- Node / Frontend ----------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Build outputs (uncomment what applies)
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+out/
+.vite/
+.turbo/
+.cache/
+coverage/
+
+# ---------- Python / Backend ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Packaging / build
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Django / Flask (if applicable)
+*.sqlite3
+db.sqlite3
+instance/
+local_settings.py
+
+
+# ---------- Logs / Misc ----------
+*.log
+logs/
+tmp/
+*.bak
