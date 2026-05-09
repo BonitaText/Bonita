@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react'
-import { BonitaSettings, defaultSettings, getSettings, saveSettings } from '../../shared/settings'
+import {
+  BonitaSettings,
+  defaultSettings,
+  getSettings,
+  onSettingsChanged,
+  saveSettings,
+} from '../../shared/settings'
 
 export function useSettings() {
   const [settings, setSettings] = useState<BonitaSettings>(defaultSettings)
 
   useEffect(() => {
     getSettings().then(setSettings)
-
-    const handler = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.bonitaSettings) {
-        setSettings({ ...defaultSettings, ...(changes.bonitaSettings.newValue as Partial<BonitaSettings>) })
-      }
-    }
-    chrome.storage.onChanged.addListener(handler)
-    return () => chrome.storage.onChanged.removeListener(handler)
+    return onSettingsChanged(setSettings)
   }, [])
 
   const updateSetting = <K extends keyof BonitaSettings>(
@@ -22,7 +21,7 @@ export function useSettings() {
   ) => {
     const next = { ...settings, [key]: value }
     setSettings(next)
-    saveSettings(next)
+    void saveSettings(next)
   }
 
   return { settings, updateSetting }

@@ -3,85 +3,97 @@ import { useFontApplier } from '../hooks/useFontApplier'
 import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
 import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
 import { useWordSimplifier } from '../hooks/useWordSimplifier'
+import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
 import PhraseBolding from './PhraseBolding'
 import POSHighlight from './POSHighlight'
 import SentenceSplitting from './SentenceSplitting'
 import WordSimplify from './WordSimplify'
 import FontSelector from './FontSelector'
+import LineFocusToggle from './LineFocusToggle'
+import TTSReader from './TTSReader'
 
 const TRIGGER_SIZE = 48
 const DEFAULT_MARGIN = 24
 const DRAG_THRESHOLD = 5
 
 const styles = `
+  :root {
+    --bonita-purple: #6f4fd8;
+    --bonita-purple-dark: #2d2148;
+    --bonita-cream: #f7f0df;
+    --bonita-white: #fffdf8;
+    --bonita-grey: #716b7b;
+    --bonita-black: #17131f;
+  }
+
   .bonita-trigger {
     position: fixed;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: #9678D3;
-    border: none;
-    cursor: grab;
+    bottom: 24px;
+    right: 24px;
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 28% 24%, rgba(255, 253, 248, 0.44), transparent 28px),
+      linear-gradient(145deg, #8061ee, #4b2fa2);
+    border: 1px solid rgba(255, 253, 248, 0.42);
+    cursor: pointer;
     pointer-events: auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    box-shadow: 0 18px 44px rgba(45, 33, 72, 0.36);
     z-index: 2147483647;
+    
+
+
+transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
     color: white;
-    font-weight: bold;
-    font-size: 18px;
-    font-family: sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     user-select: none;
-    transition: transform 0.15s;
   }
 
   .bonita-trigger:active { cursor: grabbing; }
-  .bonita-trigger:hover { transform: scale(1.08); }
+
+  .bonita-trigger:hover {
+    transform: translateY(-3px) scale(1.04);
+    box-shadow: 0 22px 54px rgba(45, 33, 72, 0.44);
+    filter: saturate(1.08);
+  }
+
+  .bonita-trigger.open {
+    border-radius: 50%;
+    transform: rotate(8deg);
+  }
+
+  .bonita-trigger-mark {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    background: rgba(255, 253, 248, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.18);
+  }
 
   .bonita-dock {
     position: fixed;
     background: white;
     border-radius: 28px;
     padding: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-    z-index: 2147483646;
-    pointer-events: auto;
-    transform: scale(0);
-    transform-origin: bottom right;
-    transition: transform 0.18s ease;
-    font-family: sans-serif;
-  }
-
-  .bonita-dock.open { transform: scale(1); }
-
-  .bonita-icon-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background: transparent;
-    color: #555;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, color 0.15s;
-    position: relative;
-    padding: 0;
-  }
 
   .bonita-icon-btn:hover {
-    background: #f3f0fa;
-    color: #9678D3;
+    background: #f7f0df;
+    color: var(--bonita-purple);
+    transform: translateX(-2px);
   }
 
   .bonita-icon-btn.active {
-    background: #9678D3;
+    background: linear-gradient(145deg, #7f5df0, #5634b8);
     color: white;
+    box-shadow: 0 12px 26px rgba(111, 79, 216, 0.30);
   }
 
   .bonita-icon-btn::before {
@@ -91,19 +103,23 @@ const styles = `
     top: 50%;
     transform: translateY(-50%);
     margin-right: 10px;
-    background: #1a1a1a;
-    color: white;
-    padding: 4px 10px;
-    border-radius: 6px;
+    background: var(--bonita-black);
+    color: var(--bonita-white);
+    padding: 7px 11px;
+    border-radius: 10px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 700;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.15s;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 12px 28px rgba(23, 19, 31, 0.22);
   }
 
-  .bonita-icon-btn:hover::before { opacity: 1; }
+  .bonita-icon-btn:hover::before {
+    opacity: 1;
+    transform: translateY(-50%) translateX(-2px);
+  }
 
   .bonita-font-wrapper {
     position: relative;
@@ -113,33 +129,57 @@ const styles = `
     position: absolute;
     right: calc(100% + 12px);
     top: 0;
-    background: white;
-    border-radius: 12px;
-    padding: 6px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    background: var(--bonita-white);
+    border: 1px solid rgba(111, 79, 216, 0.18);
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 18px 44px rgba(23, 19, 31, 0.18);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    min-width: 140px;
+    gap: 4px;
+    min-width: 160px;
+    animation: bonita-pop 180ms ease both;
   }
 
   .bonita-font-option {
     border: none;
     background: transparent;
-    padding: 8px 12px;
-    border-radius: 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
     cursor: pointer;
     font-size: 13px;
-    color: #1a1a1a;
+    color: var(--bonita-black);
     text-align: left;
-    font-family: sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    transition: background 0.16s ease, color 0.16s ease;
   }
 
-  .bonita-font-option:hover { background: #f3f0fa; }
+  .bonita-font-option:hover { background: #f7f0df; }
 
   .bonita-font-option.selected {
-    background: #9678D3;
+    background: var(--bonita-purple);
     color: white;
+  }
+
+  @keyframes bonita-pop {
+    from {
+      opacity: 0;
+      transform: translateX(6px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bonita-trigger,
+    .bonita-dock,
+    .bonita-icon-btn,
+    .bonita-font-popup {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 `
 
@@ -203,6 +243,7 @@ function App() {
   // Dock positioned right-aligned with B, sitting above it
   const dockRight = window.innerWidth - (pos.left + TRIGGER_SIZE)
   const dockBottom = window.innerHeight - pos.top + 12
+  useLineFocusApplier()
 
   return (
     <>
@@ -213,18 +254,22 @@ function App() {
         style={{ left: pos.left, top: pos.top }}
         onMouseDown={onMouseDown}
         title="Bonita (drag to move)"
+        className={`bonita-trigger ${open ? 'open' : ''}`}
       >
-        B
+        <span className="bonita-trigger-mark">B</span>
       </button>
 
       <div
         className={`bonita-dock ${open ? 'open' : ''}`}
         style={{ right: dockRight, bottom: dockBottom }}
+        data-bonita-root="true"
       >
         <SentenceSplitting />
         <PhraseBolding />
         <POSHighlight />
         <WordSimplify />
+        <LineFocusToggle />
+        <TTSReader />
         <FontSelector />
       </div>
     </>
