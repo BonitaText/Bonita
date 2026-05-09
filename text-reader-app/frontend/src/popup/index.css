@@ -1,0 +1,203 @@
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 340px;
+  color: #2f241d;
+  background: #fffaf3;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.popup-shell {
+  width: 360px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255, 215, 170, 0.85), transparent 12rem),
+    linear-gradient(145deg, #fffaf3, #ffffff);
+}
+
+.popup-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.popup-logo {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  outline: none;
+}
+
+.popup-logo img {
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  box-shadow: 0 10px 22px rgba(221, 122, 49, 0.18);
+}
+
+.popup-top p,
+.popup-top span,
+.hover-card p,
+.popup-shell h1,
+.popup-copy {
+  margin: 0;
+}
+
+.popup-top p {
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.popup-top span {
+  color: #786b62;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hover-card {
+  position: absolute;
+  top: 56px;
+  left: 0;
+  z-index: 5;
+  width: 278px;
+  padding: 14px;
+  border: 1px solid #eadbca;
+  border-radius: 8px;
+  background: #fffdf9;
+  box-shadow: 0 18px 44px rgba(92, 57, 24, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.popup-logo:hover .hover-card,
+.popup-logo:focus-within .hover-card,
+.popup-logo:focus .hover-card {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.hover-card strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.hover-card p {
+  color: #786b62;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mini-toggles {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mini-toggles label,
+.quick-tile {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.mini-toggles label {
+  color: #4a3c33;
+  font-size: 13px;
+}
+
+.popup-shell h1 {
+  font-size: 27px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.popup-copy {
+  margin-top: 10px;
+  color: #675a52;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.quick-tile {
+  min-height: 74px;
+  padding: 12px;
+  border: 1px solid #eadbca;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  font-weight: 800;
+}
+
+.quick-tile input,
+.mini-toggles input {
+  appearance: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: #eadbca;
+  cursor: pointer;
+  position: relative;
+}
+
+.quick-tile input::after,
+.mini-toggles input::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 3px 8px rgba(60, 42, 26, 0.16);
+  transition: transform 160ms ease;
+}
+
+.quick-tile input:checked,
+.mini-toggles input:checked {
+  background: #dd7a31;
+}
+
+.quick-tile input:checked::after,
+.mini-toggles input:checked::after {
+  transform: translateX(16px);
+}
+
+.dashboard-link {
+  display: block;
+  padding: 13px 16px;
+  border-radius: 8px;
+  color: white;
+  background: #dd7a31;
+  box-shadow: 0 12px 24px rgba(221, 122, 49, 0.24);
+  font-weight: 850;
+  text-align: center;
+  text-decoration: none;
+}
