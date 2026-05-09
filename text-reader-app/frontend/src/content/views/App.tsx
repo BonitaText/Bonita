@@ -1,8 +1,12 @@
 import { useState } from 'react'
+import { useFontApplier } from '../hooks/useFontApplier'
+import PhraseBolding from './PhraseBolding'
+import POSHighlight from './POSHighlight'
+import SentenceSplitting from './SentenceSplitting'
+import WordSimplify from './WordSimplify'
+import FontSelector from './FontSelector'
 
 const styles = `
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
   .bonita-trigger {
     position: fixed;
     bottom: 24px;
@@ -20,71 +24,123 @@ const styles = `
     box-shadow: 0 2px 12px rgba(0,0,0,0.2);
     z-index: 2147483647;
     transition: transform 0.2s;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    font-family: sans-serif;
   }
 
   .bonita-trigger:hover { transform: scale(1.08); }
 
-  .bonita-trigger svg {
-    width: 24px;
-    height: 24px;
-    fill: white;
-  }
-
-  .bonita-panel {
+  .bonita-dock {
     position: fixed;
-    top: 0;
-    right: 0;
-    width: 420px;
-    height: 100vh;
+    bottom: 84px;
+    right: 24px;
     background: white;
-    border-left: 1px solid #e2e2e2;
-    pointer-events: auto;
+    border-radius: 28px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
     z-index: 2147483646;
-    transform: translateX(100%);
-    transition: transform 0.3s ease;
+    pointer-events: auto;
+    transform: scale(0);
+    transform-origin: bottom right;
+    transition: transform 0.18s ease;
     font-family: sans-serif;
   }
 
-  .bonita-panel.open { transform: translateX(0); }
+  .bonita-dock.open { transform: scale(1); }
 
-  .bonita-panel-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #e2e2e2;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .bonita-panel-header h2 {
-    font-size: 16px;
-    font-weight: 600;
-    color: #1a1a1a;
-  }
-
-  .bonita-close {
-    background: none;
+  .bonita-icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     border: none;
+    background: transparent;
+    color: #555;
     cursor: pointer;
-    font-size: 20px;
-    color: #666;
-    pointer-events: auto;
-    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    position: relative;
+    padding: 0;
   }
 
-  .bonita-panel-body {
-    padding: 20px;
-    flex: 1;
-    overflow-y: auto;
-    color: #333;
-    font-size: 15px;
-    line-height: 1.6;
+  .bonita-icon-btn:hover {
+    background: #f3f0fa;
+    color: #5243AA;
+  }
+
+  .bonita-icon-btn.active {
+    background: #5243AA;
+    color: white;
+  }
+
+  .bonita-icon-btn::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 10px;
+    background: #1a1a1a;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  .bonita-icon-btn:hover::before { opacity: 1; }
+
+  .bonita-font-wrapper {
+    position: relative;
+  }
+
+  .bonita-font-popup {
+    position: absolute;
+    right: calc(100% + 12px);
+    top: 0;
+    background: white;
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 140px;
+  }
+
+  .bonita-font-option {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #1a1a1a;
+    text-align: left;
+    font-family: sans-serif;
+  }
+
+  .bonita-font-option:hover { background: #f3f0fa; }
+
+  .bonita-font-option.selected {
+    background: #5243AA;
+    color: white;
   }
 `
 
 function App() {
   const [open, setOpen] = useState(false)
+  useFontApplier()
 
   return (
     <>
@@ -95,21 +151,15 @@ function App() {
         onClick={() => setOpen(!open)}
         title="Open Bonita"
       >
-        {/* B icon for Bonita */}
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <text x="5" y="18" fontSize="16" fontWeight="bold" fill="white">B</text>
-        </svg>
+        B
       </button>
 
-      <div className={`bonita-panel ${open ? 'open' : ''}`}>
-        <div className="bonita-panel-header">
-          <h2>Bonita</h2>
-          <button className="bonita-close" onClick={() => setOpen(false)}>✕</button>
-        </div>
-        <div className="bonita-panel-body">
-          {/* restructured content will go here */}
-          <p>Panel ready. Processing coming soon.</p>
-        </div>
+      <div className={`bonita-dock ${open ? 'open' : ''}`}>
+        <SentenceSplitting />
+        <PhraseBolding />
+        <POSHighlight />
+        <WordSimplify />
+        <FontSelector />
       </div>
     </>
   )

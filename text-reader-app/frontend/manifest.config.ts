@@ -17,6 +17,7 @@ export default defineManifest({
   permissions: [
     'sidePanel',
     'contentSettings',
+    'storage',
   ],
   content_scripts: [{
     js: ['src/content/main.tsx'],
@@ -25,4 +26,10 @@ export default defineManifest({
   side_panel: {
     default_path: 'src/sidepanel/index.html',
   },
+  web_accessible_resources: [
+    {
+      resources: ['fonts/*'],
+      matches: ['https://*/*'],
+    },
+  ],
 })
