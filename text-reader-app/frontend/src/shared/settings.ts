@@ -4,7 +4,11 @@ export interface BonitaSettings {
   sentenceSplitting: boolean
   bulletPoints: boolean
   keywordBolding: boolean
-  posHighlighting: boolean
+  posEnabled: {
+    verbs: boolean
+    nouns: boolean
+    adjectives: boolean
+  }
   posColors: {
     verbs: string
     nouns: string
@@ -22,7 +26,11 @@ export const defaultSettings: BonitaSettings = {
   sentenceSplitting: true,
   bulletPoints: true,
   keywordBolding: true,
-  posHighlighting: false,
+  posEnabled: {
+    verbs: false,
+    nouns: false,
+    adjectives: false,
+  },
   posColors: {
     verbs: '#4A90D9',
     nouns: '#27AE60',

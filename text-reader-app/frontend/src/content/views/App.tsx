@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useFontApplier } from '../hooks/useFontApplier'
+import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
+import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
+import { useWordSimplifier } from '../hooks/useWordSimplifier'
 import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
-import { useReadingToolsApplier } from '../hooks/useReadingToolsApplier'
 import PhraseBolding from './PhraseBolding'
 import POSHighlight from './POSHighlight'
 import SentenceSplitting from './SentenceSplitting'
@@ -9,6 +11,10 @@ import WordSimplify from './WordSimplify'
 import FontSelector from './FontSelector'
 import LineFocusToggle from './LineFocusToggle'
 import TTSReader from './TTSReader'
+
+const TRIGGER_SIZE = 48
+const DEFAULT_MARGIN = 24
+const DRAG_THRESHOLD = 5
 
 const styles = `
   :root {
@@ -38,12 +44,18 @@ const styles = `
     justify-content: center;
     box-shadow: 0 18px 44px rgba(45, 33, 72, 0.36);
     z-index: 2147483647;
-    transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
+    
+
+
+transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
     color: white;
     font-weight: 900;
     font-size: 20px;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    user-select: none;
   }
+
+  .bonita-trigger:active { cursor: grabbing; }
 
   .bonita-trigger:hover {
     transform: translateY(-3px) scale(1.04);
@@ -68,70 +80,9 @@ const styles = `
 
   .bonita-dock {
     position: fixed;
-    bottom: 94px;
-    right: 24px;
-    min-width: 72px;
-    background:
-      linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(247, 240, 223, 0.94));
-    border: 1px solid rgba(111, 79, 216, 0.20);
-    border-radius: 26px;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    box-shadow: 0 20px 58px rgba(23, 19, 31, 0.22);
-    z-index: 2147483646;
-    pointer-events: auto;
-    opacity: 0;
-    transform: translateY(12px) scale(0.88);
-    transform-origin: bottom right;
-    transition: transform 0.22s ease, opacity 0.18s ease;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    backdrop-filter: blur(18px);
-  }
-
-  .bonita-dock.open {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-
-  .bonita-dock-header {
-    display: grid;
-    gap: 1px;
-    padding: 7px 8px 9px;
-    border-bottom: 1px solid rgba(111, 79, 216, 0.15);
-    text-align: center;
-  }
-
-  .bonita-dock-header strong {
-    color: var(--bonita-purple-dark);
-    font-size: 12px;
-    letter-spacing: 0;
-  }
-
-  .bonita-dock-header span {
-    color: var(--bonita-grey);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  .bonita-icon-btn {
-    width: 48px;
-    height: 48px;
-    border-radius: 16px;
-    border: none;
-    background: rgba(255, 253, 248, 0.72);
-    color: var(--bonita-grey);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-    position: relative;
-    padding: 0;
-  }
+    background: white;
+    border-radius: 28px;
+    padding: 6px;
 
   .bonita-icon-btn:hover {
     background: #f7f0df;
@@ -234,8 +185,64 @@ const styles = `
 
 function App() {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(() => ({
+    left: window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN,
+    top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
+  }))
+
+  const dragStateRef = useRef({
+    originLeft: 0,
+    originTop: 0,
+    startX: 0,
+    startY: 0,
+    moved: false,
+  })
+
   useFontApplier()
-  useReadingToolsApplier()
+  usePOSHighlighter()
+  useSentenceSplitter()
+  useWordSimplifier()
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    dragStateRef.current = {
+      originLeft: pos.left,
+      originTop: pos.top,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    }
+
+    const onMove = (ev: MouseEvent) => {
+      const s = dragStateRef.current
+      const dx = ev.clientX - s.startX
+      const dy = ev.clientY - s.startY
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        s.moved = true
+      }
+      if (s.moved) {
+        setPos({
+          left: Math.max(0, Math.min(window.innerWidth - TRIGGER_SIZE, s.originLeft + dx)),
+          top: Math.max(0, Math.min(window.innerHeight - TRIGGER_SIZE, s.originTop + dy)),
+        })
+      }
+    }
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      if (!dragStateRef.current.moved) {
+        setOpen((o) => !o)
+      }
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  // Dock positioned right-aligned with B, sitting above it
+  const dockRight = window.innerWidth - (pos.left + TRIGGER_SIZE)
+  const dockBottom = window.innerHeight - pos.top + 12
   useLineFocusApplier()
 
   return (
@@ -243,19 +250,20 @@ function App() {
       <style>{styles}</style>
 
       <button
+        className="bonita-trigger"
+        style={{ left: pos.left, top: pos.top }}
+        onMouseDown={onMouseDown}
+        title="Bonita (drag to move)"
         className={`bonita-trigger ${open ? 'open' : ''}`}
-        onClick={() => setOpen(!open)}
-        title="Open Bonita"
-        data-bonita-root="true"
       >
         <span className="bonita-trigger-mark">B</span>
       </button>
 
-      <div className={`bonita-dock ${open ? 'open' : ''}`} data-bonita-root="true">
-        <div className="bonita-dock-header">
-          <strong>Bonita</strong>
-          <span>Reading tools</span>
-        </div>
+      <div
+        className={`bonita-dock ${open ? 'open' : ''}`}
+        style={{ right: dockRight, bottom: dockBottom }}
+        data-bonita-root="true"
+      >
         <SentenceSplitting />
         <PhraseBolding />
         <POSHighlight />

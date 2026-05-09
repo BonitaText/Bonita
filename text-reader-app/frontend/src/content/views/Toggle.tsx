@@ -21,7 +21,7 @@ const styles = `
   }
 
   .bonita-toggle-icon {
-    color: #5243AA;
+    color: #9678D3;
     flex-shrink: 0;
   }
 
@@ -39,7 +39,7 @@ const styles = `
   }
 
   .bonita-toggle.on {
-    background: #5243AA;
+    background: #9678D3;
   }
 
   .bonita-toggle::after {
