@@ -2,11 +2,11 @@
 
 ## Problem
 
-Online resources are often unstructured and wordy, making them inaccessible to many people. Autistic individuals, those with ADHD, and people with dyslexia face particular difficulty processing information in dense, unformatted text.
+Online resources are often unstructured and wordy, making them inaccessible to many people. Autistic individuals, those with ADHD, and people with dyslexia face difficulty processing information in dense, unformatted text.
 
 ## Solution
 
-A Chrome extension that restructures walls of website text into readable content in real time, specifically built around the needs of neurodivergent users.
+A Chrome extension that restructures walls of website text into readable content, real time, specifically built around the needs of neurodivergent users.
 
 ---
 
