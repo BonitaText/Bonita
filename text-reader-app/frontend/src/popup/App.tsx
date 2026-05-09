@@ -1,22 +1,10 @@
-import crxLogo from '@/assets/crx.svg'
-import reactLogo from '@/assets/react.svg'
-import viteLogo from '@/assets/vite.svg'
-import HelloWorld from '@/components/HelloWorld'
-import './App.css'
-
-export default function App() {
+function App() {
   return (
-    <div>
-      <a href="https://vite.dev" target="_blank" rel="noreferrer">
-        <img src={viteLogo} className="logo" alt="Vite logo" />
-      </a>
-      <a href="https://reactjs.org/" target="_blank" rel="noreferrer">
-        <img src={reactLogo} className="logo react" alt="React logo" />
-      </a>
-      <a href="https://crxjs.dev/vite-plugin" target="_blank" rel="noreferrer">
-        <img src={crxLogo} className="logo crx" alt="crx logo" />
-      </a>
-      <HelloWorld msg="Vite + React + CRXJS" />
+    <div style={{ width: '320px', padding: '16px', fontFamily: 'sans-serif' }}>
+      <h1 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>Bonita Settings</h1>
+      <p style={{ fontSize: '13px', color: '#666' }}>Settings coming soon.</p>
     </div>
   )
 }
+
+export default App
