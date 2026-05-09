@@ -200,7 +200,7 @@ export function useReadingToolsApplier() {
       settings.sentenceSplitting ||
       settings.keywordBolding ||
       settings.wordSimplification ||
-      settings.posHighlighting
+      Object.values(settings.posEnabled).some(Boolean)
 
     restoreTargets()
 
@@ -224,7 +224,7 @@ export function useReadingToolsApplier() {
         settings.sentenceSplitting,
         settings.keywordBolding,
         settings.wordSimplification,
-        settings.posHighlighting,
+        Object.values(settings.posEnabled).some(Boolean),
       )
       element.classList.add('bonita-processed')
     }
@@ -235,7 +235,7 @@ export function useReadingToolsApplier() {
     }
   }, [
     settings.keywordBolding,
-    settings.posHighlighting,
+    settings.posEnabled,
     settings.sentenceSplitting,
     settings.wordSimplification,
   ])

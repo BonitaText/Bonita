@@ -21,10 +21,9 @@ type ToggleKey = keyof Pick<
   | 'sentenceSplitting'
   | 'keywordBolding'
   | 'wordSimplification'
-  | 'posHighlighting'
   | 'lineFocus'
   | 'tts'
->
+> | 'posEnabled'
 
 const tools: Array<{
   key: ToggleKey
@@ -55,7 +54,7 @@ const tools: Array<{
     category: 'Language',
   },
   {
-    key: 'posHighlighting',
+    key: 'posEnabled',
     icon: Palette,
     title: 'Grammar color cues',
     description: 'Lightly mark nouns, verbs, and adjectives for pattern recognition.',
@@ -100,7 +99,7 @@ function App() {
   }, [])
 
   const activeCount = useMemo(
-    () => tools.filter((tool) => settings[tool.key]).length,
+    () => tools.filter((tool) => (tool.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[tool.key])).length,
     [settings],
   )
 
@@ -200,7 +199,7 @@ function App() {
             {tools.map((tool) => {
               const Icon = tool.icon
               return (
-                <label className={`tool-card ${settings[tool.key] ? 'active' : ''}`} key={tool.key}>
+                <label className={`tool-card ${(tool.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[tool.key]) ? 'active' : ''}`} key={tool.key}>
                   <span className="tool-icon">
                     <Icon size={22} />
                   </span>
@@ -211,8 +210,10 @@ function App() {
                   </span>
                   <input
                     type="checkbox"
-                    checked={settings[tool.key]}
-                    onChange={(event) => updateSetting(tool.key, event.currentTarget.checked)}
+                    checked={(tool.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[tool.key])}
+                    onChange={(event) => tool.key === 'posEnabled'
+                      ? updateSetting('posEnabled', { verbs: event.currentTarget.checked, nouns: event.currentTarget.checked, adjectives: event.currentTarget.checked })
+                      : updateSetting(tool.key, event.currentTarget.checked)}
                   />
                 </label>
               )

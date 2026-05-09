@@ -19,10 +19,9 @@ type ToggleKey = keyof Pick<
   | 'sentenceSplitting'
   | 'keywordBolding'
   | 'wordSimplification'
-  | 'posHighlighting'
   | 'lineFocus'
   | 'tts'
->
+> | 'posEnabled'
 
 const featureToggles: Array<{
   key: ToggleKey
@@ -49,7 +48,7 @@ const featureToggles: Array<{
     detail: 'Underline complex words with simpler hover hints.',
   },
   {
-    key: 'posHighlighting',
+    key: 'posEnabled',
     icon: Palette,
     title: 'Grammar color',
     detail: 'Add lightweight noun, verb, and adjective cues.',
@@ -83,7 +82,7 @@ function App() {
   }, [])
 
   const activeCount = useMemo(
-    () => featureToggles.filter((feature) => settings[feature.key]).length,
+    () => featureToggles.filter((feature) => (feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key])).length,
     [settings],
   )
 
@@ -147,7 +146,7 @@ function App() {
         {featureToggles.map((feature) => {
           const Icon = feature.icon
           return (
-            <label className={`feature-card ${settings[feature.key] ? 'active' : ''}`} key={feature.key}>
+            <label className={`feature-card ${(feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key]) ? 'active' : ''}`} key={feature.key}>
               <span className="feature-icon">
                 <Icon size={18} strokeWidth={2} />
               </span>
@@ -157,8 +156,10 @@ function App() {
               </span>
               <input
                 type="checkbox"
-                checked={settings[feature.key]}
-                onChange={(event) => updateSetting(feature.key, event.currentTarget.checked)}
+                checked={(feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key])}
+                onChange={(event) => feature.key === 'posEnabled'
+                    ? updateSetting('posEnabled', { verbs: event.currentTarget.checked, nouns: event.currentTarget.checked, adjectives: event.currentTarget.checked })
+                    : updateSetting(feature.key, event.currentTarget.checked)}
               />
             </label>
           )

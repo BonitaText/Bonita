@@ -56,6 +56,10 @@ const mergeSettings = (settings: unknown): BonitaSettings => {
   return {
     ...defaultSettings,
     ...next,
+    posEnabled: {
+      ...defaultSettings.posEnabled,
+      ...next.posEnabled,
+    },
     posColors: {
       ...defaultSettings.posColors,
       ...next.posColors,

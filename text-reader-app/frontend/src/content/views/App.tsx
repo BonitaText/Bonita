@@ -1,18 +1,19 @@
-import { useState, useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useFontApplier } from '../hooks/useFontApplier'
+import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
+import { usePhraseBolder } from '../hooks/usePhraseBolder'
 import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
 import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
 import { useWordSimplifier } from '../hooks/useWordSimplifier'
-import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
+import FontSelector from './FontSelector'
+import LineFocusToggle from './LineFocusToggle'
 import PhraseBolding from './PhraseBolding'
 import POSHighlight from './POSHighlight'
 import SentenceSplitting from './SentenceSplitting'
-import WordSimplify from './WordSimplify'
-import FontSelector from './FontSelector'
-import LineFocusToggle from './LineFocusToggle'
 import TTSReader from './TTSReader'
+import WordSimplify from './WordSimplify'
 
-const TRIGGER_SIZE = 48
+const TRIGGER_SIZE = 58
 const DEFAULT_MARGIN = 24
 const DRAG_THRESHOLD = 5
 
@@ -28,8 +29,6 @@ const styles = `
 
   .bonita-trigger {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
     width: 58px;
     height: 58px;
     border-radius: 18px;
@@ -37,17 +36,14 @@ const styles = `
       radial-gradient(circle at 28% 24%, rgba(255, 253, 248, 0.44), transparent 28px),
       linear-gradient(145deg, #8061ee, #4b2fa2);
     border: 1px solid rgba(255, 253, 248, 0.42);
-    cursor: pointer;
+    cursor: grab;
     pointer-events: auto;
     display: flex;
     align-items: center;
     justify-content: center;
     box-shadow: 0 18px 44px rgba(45, 33, 72, 0.36);
     z-index: 2147483647;
-    
-
-
-transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
     color: white;
     font-weight: 900;
     font-size: 20px;
@@ -65,7 +61,6 @@ transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
 
   .bonita-trigger.open {
     border-radius: 50%;
-    transform: rotate(8deg);
   }
 
   .bonita-trigger-mark {
@@ -80,9 +75,74 @@ transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
 
   .bonita-dock {
     position: fixed;
-    background: white;
-    border-radius: 28px;
-    padding: 6px;
+    box-sizing: border-box;
+    width: 72px;
+    min-width: 72px;
+    background:
+      linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(247, 240, 223, 0.94));
+    border: 1px solid rgba(111, 79, 216, 0.20);
+    border-radius: 26px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 20px 58px rgba(23, 19, 31, 0.22);
+    z-index: 2147483646;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(12px) scale(0.88);
+    transform-origin: bottom right;
+    transition: transform 0.22s ease, opacity 0.18s ease;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    backdrop-filter: blur(18px);
+  }
+
+  .bonita-dock.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .bonita-dock-header {
+    display: grid;
+    justify-items: center;
+    gap: 1px;
+    padding: 7px 0 9px;
+    border-bottom: 1px solid rgba(111, 79, 216, 0.15);
+    text-align: center;
+  }
+
+  .bonita-dock-header strong {
+    color: var(--bonita-purple-dark);
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+
+  .bonita-dock-header span {
+    color: var(--bonita-grey);
+    max-width: 48px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.22;
+    text-transform: uppercase;
+  }
+
+  .bonita-icon-btn {
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    border: none;
+    background: rgba(255, 253, 248, 0.72);
+    color: var(--bonita-grey);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    position: relative;
+    padding: 0;
+  }
 
   .bonita-icon-btn:hover {
     background: #f7f0df;
@@ -125,7 +185,8 @@ transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
     position: relative;
   }
 
-  .bonita-font-popup {
+  .bonita-font-popup,
+  .bonita-pos-popup {
     position: absolute;
     right: calc(100% + 12px);
     top: 0;
@@ -176,7 +237,8 @@ transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
     .bonita-trigger,
     .bonita-dock,
     .bonita-icon-btn,
-    .bonita-font-popup {
+    .bonita-font-popup,
+    .bonita-pos-popup {
       transition: none !important;
       animation: none !important;
     }
@@ -199,9 +261,11 @@ function App() {
   })
 
   useFontApplier()
+  usePhraseBolder()
   usePOSHighlighter()
   useSentenceSplitter()
   useWordSimplifier()
+  useLineFocusApplier()
 
   const onMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -240,21 +304,19 @@ function App() {
     document.addEventListener('mouseup', onUp)
   }
 
-  // Dock positioned right-aligned with B, sitting above it
   const dockRight = window.innerWidth - (pos.left + TRIGGER_SIZE)
   const dockBottom = window.innerHeight - pos.top + 12
-  useLineFocusApplier()
 
   return (
     <>
       <style>{styles}</style>
 
       <button
-        className="bonita-trigger"
+        className={`bonita-trigger ${open ? 'open' : ''}`}
         style={{ left: pos.left, top: pos.top }}
         onMouseDown={onMouseDown}
         title="Bonita (drag to move)"
-        className={`bonita-trigger ${open ? 'open' : ''}`}
+        data-bonita-root="true"
       >
         <span className="bonita-trigger-mark">B</span>
       </button>
@@ -264,6 +326,10 @@ function App() {
         style={{ right: dockRight, bottom: dockBottom }}
         data-bonita-root="true"
       >
+        <div className="bonita-dock-header">
+          <strong>Bonita</strong>
+          <span>Reading<br />Tools</span>
+        </div>
         <SentenceSplitting />
         <PhraseBolding />
         <POSHighlight />
