@@ -162,8 +162,10 @@ text-reader-app/
           wordScanner.ts           ← Scans page for complex words to underline
 
       popup/                       ← Click extension icon in toolbar → settings
+        App.tsx
         index.html
         index.tsx
+        main.tsx
         views/
           Popup.tsx                ← Settings UI
           sections/
