@@ -4,7 +4,11 @@ export interface BonitaSettings {
   sentenceSplitting: boolean
   bulletPoints: boolean
   keywordBolding: boolean
-  posHighlighting: boolean
+  posEnabled: {
+    verbs: boolean
+    nouns: boolean
+    adjectives: boolean
+  }
   posColors: {
     verbs: string
     nouns: string
@@ -22,7 +26,11 @@ export const defaultSettings: BonitaSettings = {
   sentenceSplitting: true,
   bulletPoints: true,
   keywordBolding: true,
-  posHighlighting: false,
+  posEnabled: {
+    verbs: false,
+    nouns: false,
+    adjectives: false,
+  },
   posColors: {
     verbs: '#4A90D9',
     nouns: '#27AE60',
@@ -37,7 +45,7 @@ export const defaultSettings: BonitaSettings = {
 // helpers so every piece of the extension reads/writes the same way
 export const getSettings = (): Promise<BonitaSettings> =>
   chrome.storage.sync.get('bonitaSettings').then(
-    (res) => res.bonitaSettings ?? defaultSettings
+    (res) => ({ ...defaultSettings, ...(res.bonitaSettings ?? {}) })
   )
 
 export const saveSettings = (settings: BonitaSettings): Promise<void> =>

@@ -1,41 +1,46 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useFontApplier } from '../hooks/useFontApplier'
+import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
+import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
+import { useWordSimplifier } from '../hooks/useWordSimplifier'
 import PhraseBolding from './PhraseBolding'
 import POSHighlight from './POSHighlight'
 import SentenceSplitting from './SentenceSplitting'
 import WordSimplify from './WordSimplify'
 import FontSelector from './FontSelector'
 
+const TRIGGER_SIZE = 48
+const DEFAULT_MARGIN = 24
+const DRAG_THRESHOLD = 5
+
 const styles = `
   .bonita-trigger {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: #5243AA;
+    background: #9678D3;
     border: none;
-    cursor: pointer;
+    cursor: grab;
     pointer-events: auto;
     display: flex;
     align-items: center;
     justify-content: center;
     box-shadow: 0 2px 12px rgba(0,0,0,0.2);
     z-index: 2147483647;
-    transition: transform 0.2s;
     color: white;
     font-weight: bold;
     font-size: 18px;
     font-family: sans-serif;
+    user-select: none;
+    transition: transform 0.15s;
   }
 
+  .bonita-trigger:active { cursor: grabbing; }
   .bonita-trigger:hover { transform: scale(1.08); }
 
   .bonita-dock {
     position: fixed;
-    bottom: 84px;
-    right: 24px;
     background: white;
     border-radius: 28px;
     padding: 6px;
@@ -71,11 +76,11 @@ const styles = `
 
   .bonita-icon-btn:hover {
     background: #f3f0fa;
-    color: #5243AA;
+    color: #9678D3;
   }
 
   .bonita-icon-btn.active {
-    background: #5243AA;
+    background: #9678D3;
     color: white;
   }
 
@@ -133,14 +138,71 @@ const styles = `
   .bonita-font-option:hover { background: #f3f0fa; }
 
   .bonita-font-option.selected {
-    background: #5243AA;
+    background: #9678D3;
     color: white;
   }
 `
 
 function App() {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState(() => ({
+    left: window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN,
+    top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
+  }))
+
+  const dragStateRef = useRef({
+    originLeft: 0,
+    originTop: 0,
+    startX: 0,
+    startY: 0,
+    moved: false,
+  })
+
   useFontApplier()
+  usePOSHighlighter()
+  useSentenceSplitter()
+  useWordSimplifier()
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    dragStateRef.current = {
+      originLeft: pos.left,
+      originTop: pos.top,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    }
+
+    const onMove = (ev: MouseEvent) => {
+      const s = dragStateRef.current
+      const dx = ev.clientX - s.startX
+      const dy = ev.clientY - s.startY
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        s.moved = true
+      }
+      if (s.moved) {
+        setPos({
+          left: Math.max(0, Math.min(window.innerWidth - TRIGGER_SIZE, s.originLeft + dx)),
+          top: Math.max(0, Math.min(window.innerHeight - TRIGGER_SIZE, s.originTop + dy)),
+        })
+      }
+    }
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      if (!dragStateRef.current.moved) {
+        setOpen((o) => !o)
+      }
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  // Dock positioned right-aligned with B, sitting above it
+  const dockRight = window.innerWidth - (pos.left + TRIGGER_SIZE)
+  const dockBottom = window.innerHeight - pos.top + 12
 
   return (
     <>
@@ -148,13 +210,17 @@ function App() {
 
       <button
         className="bonita-trigger"
-        onClick={() => setOpen(!open)}
-        title="Open Bonita"
+        style={{ left: pos.left, top: pos.top }}
+        onMouseDown={onMouseDown}
+        title="Bonita (drag to move)"
       >
         B
       </button>
 
-      <div className={`bonita-dock ${open ? 'open' : ''}`}>
+      <div
+        className={`bonita-dock ${open ? 'open' : ''}`}
+        style={{ right: dockRight, bottom: dockBottom }}
+      >
         <SentenceSplitting />
         <PhraseBolding />
         <POSHighlight />

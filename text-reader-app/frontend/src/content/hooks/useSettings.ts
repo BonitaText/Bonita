@@ -9,7 +9,7 @@ export function useSettings() {
 
     const handler = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.bonitaSettings) {
-        setSettings(changes.bonitaSettings.newValue as BonitaSettings)
+        setSettings({ ...defaultSettings, ...(changes.bonitaSettings.newValue as Partial<BonitaSettings>) })
       }
     }
     chrome.storage.onChanged.addListener(handler)
