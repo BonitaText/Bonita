@@ -1,10 +1,9 @@
 import { useRef, useState } from 'react'
 import { useFontApplier } from '../hooks/useFontApplier'
 import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
-import { usePhraseBolder } from '../hooks/usePhraseBolder'
+
 import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
-import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
-import { useWordSimplifier } from '../hooks/useWordSimplifier'
+import { usePageAnalysis } from '../hooks/usePageAnalysis'
 import FontSelector from './FontSelector'
 import LineFocusToggle from './LineFocusToggle'
 import PhraseBolding from './PhraseBolding'
@@ -262,10 +261,8 @@ function App() {
   })
 
   useFontApplier()
-  usePhraseBolder()
   usePOSHighlighter()
-  useSentenceSplitter()
-  useWordSimplifier()
+  usePageAnalysis()
   useLineFocusApplier()
 
   const onMouseDown = (e: React.MouseEvent) => {
