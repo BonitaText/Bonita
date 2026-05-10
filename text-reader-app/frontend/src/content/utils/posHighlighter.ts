@@ -16,6 +16,16 @@ interface POSEnabled {
   adjectives: boolean
 }
 
+// Indicator labels for colourblind accessibility
+const POS_LABEL: Record<POSTag, string> = {
+  verbs: 'v',
+  nouns: 'n',
+  adjectives: 'a',
+}
+
+// Highlight background colours (softer than solid text colour)
+const HIGHLIGHT_ALPHA = '33' // hex ~20% opacity suffix
+
 const ALLOWED_TEXT_TAGS = new Set([
   'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'blockquote', 'article', 'main', 'section', 'div', 'span',
@@ -32,14 +42,12 @@ function pickTag(tags: any, word: string, enabled: POSEnabled): POSTag | null {
   const has = (t: string) =>
     Array.isArray(tags) ? tags.includes(t) : Boolean(tags[t])
 
-  // Skip closed-class / filler words (no semantic weight)
   if (has('Pronoun') || has('Determiner') || has('Conjunction')
       || has('Preposition') || has('Auxiliary') || has('Copula')
       || has('Modal') || has('Negative')) {
     return null
   }
 
-  // Skip very short words — usually low-meaning
   if (word.replace(/[^a-zA-Z]/g, '').length < 4) return null
 
   if (enabled.verbs && has('Verb')) return 'verbs'
@@ -58,11 +66,9 @@ function escapeHtml(s: string): string {
 
 function shouldSkip(parent: Element | null): boolean {
   if (!parent) return true
-
-  if (parent.closest('#crxjs-app, .bonita-dock, .bonita-trigger, .bonita-font-popup')) {
+  if (parent.closest('#bonita-root, .bonita-dock, .bonita-trigger, .bonita-font-popup')) {
     return true
   }
-
   let inAllowed = false
   let cursor: Element | null = parent
   while (cursor) {
@@ -76,7 +82,6 @@ function shouldSkip(parent: Element | null): boolean {
 
 export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
   removePOSHighlight()
-
   if (!enabled.verbs && !enabled.nouns && !enabled.adjectives) return
 
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
@@ -102,14 +107,39 @@ export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
 
     let html = ''
     let touched = false
+
     for (const sentence of sentences) {
       for (const term of sentence.terms || []) {
         const pre = escapeHtml(term.pre || '')
         const post = escapeHtml(term.post || '')
         const word = escapeHtml(term.text || '')
         const tag = pickTag(term.tags, term.text || '', enabled)
+
         if (tag) {
-          html += `${pre}<span class="${MARKER_CLASS}" style="color:${colors[tag]} !important;font-weight:inherit;">${word}</span>${post}`
+          const color = colors[tag]
+          const label = POS_LABEL[tag]
+          // Highlight background + small superscript label for colourblind accessibility
+          html += `${pre}<span
+            class="${MARKER_CLASS}"
+            data-pos="${tag}"
+            style="
+              background-color: ${color}${HIGHLIGHT_ALPHA};
+              border-bottom: 2px solid ${color};
+              border-radius: 3px;
+              padding: 0 1px;
+              position: relative;
+              display: inline;
+            "><span style="
+              font-size: 0.55em;
+              font-weight: 700;
+              vertical-align: super;
+              color: ${color};
+              opacity: 0.85;
+              letter-spacing: 0;
+              line-height: 1;
+              margin-left: 0.5px;
+              font-family: monospace;
+            ">${label}</span>${word}</span>${post}`
           touched = true
         } else {
           html += pre + word + post
@@ -131,11 +161,11 @@ export function removePOSHighlight() {
   const wrappers = document.querySelectorAll(`.${MARKER_CLASS}`)
   const parents = new Set<Element>()
   wrappers.forEach((wrapper) => {
+    // Remove the label superscript, keep just the word text
+    const label = wrapper.querySelector('span')
+    if (label) label.remove()
     if (wrapper.parentElement) parents.add(wrapper.parentElement)
-    const text = wrapper.textContent || ''
-    wrapper.replaceWith(document.createTextNode(text))
+    wrapper.replaceWith(document.createTextNode(wrapper.textContent || ''))
   })
-  // Merge adjacent text nodes back into single text nodes (only on parents we touched,
-  // so we don't accidentally normalize React-managed DOM)
   parents.forEach((p) => p.normalize())
 }

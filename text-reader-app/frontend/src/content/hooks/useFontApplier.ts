@@ -21,20 +21,39 @@ export function useFontApplier() {
 
     const style = document.createElement('style')
     style.id = STYLE_ID
-    const fontUrl = chrome.runtime.getURL('fonts/opendyslexic-latin-400-normal.woff2')
 
+    // Only declare @font-face for OpenDyslexic — system fonts don't need it
+    let fontFace = ''
+    if (settings.font === 'opendyslexic') {
+      const fontUrl = chrome.runtime.getURL('fonts/opendyslexic-latin-400-normal.woff2')
+      fontFace = `
+        @font-face {
+          font-family: 'OpenDyslexic';
+          src: url('${fontUrl}') format('woff2');
+          font-weight: 400;
+          font-style: normal;
+          font-display: swap;
+        }
+      `
+    }
+
+    // FIX: :not([class^="bonita-"] *) is invalid in Chrome — complex selectors
+    // inside :not() with descendant combinators are not supported.
+    // Apply to everything, then restore Bonita UI with a second rule.
     style.textContent = `
-      @font-face {
-        font-family: 'OpenDyslexic';
-        src: url('${fontUrl}') format('woff2');
-        font-weight: 400;
-        font-style: normal;
-      }
+      ${fontFace}
 
-      body, body *:not([class^="bonita-"]):not([class^="bonita-"] *) {
+      body, body * {
         font-family: ${family} !important;
       }
+
+      [data-bonita-root="true"],
+      [data-bonita-root="true"] * {
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system,
+                     BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      }
     `
+
     document.head.appendChild(style)
   }, [settings.font])
 }
