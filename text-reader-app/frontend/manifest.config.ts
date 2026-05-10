@@ -18,7 +18,6 @@ export default defineManifest({
     default_popup: 'src/popup/index.html',
   },
   permissions: [
-    'sidePanel',
     'contentSettings',
     'storage',
   ],
@@ -26,9 +25,6 @@ export default defineManifest({
     js: ['src/content/main.tsx'],
     matches: ['http://*/*', 'https://*/*'],
   }],
-  side_panel: {
-    default_path: 'src/sidepanel/index.html',
-  },
   web_accessible_resources: [
     {
       resources: ['fonts/*'],

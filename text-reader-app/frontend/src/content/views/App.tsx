@@ -76,8 +76,8 @@ const styles = `
   .bonita-dock {
     position: fixed;
     box-sizing: border-box;
-    width: 72px;
-    min-width: 72px;
+    width: 86px;
+    min-width: 86px;
     background:
       linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(247, 240, 223, 0.94));
     border: 1px solid rgba(111, 79, 216, 0.20);
@@ -106,24 +106,25 @@ const styles = `
     display: grid;
     justify-items: center;
     gap: 1px;
-    padding: 7px 0 9px;
+    padding: 8px 0 10px;
     border-bottom: 1px solid rgba(111, 79, 216, 0.15);
     text-align: center;
   }
 
   .bonita-dock-header strong {
     color: var(--bonita-purple-dark);
-    font-size: 12px;
+    font-size: 16px;
+    line-height: 1.15;
     letter-spacing: 0;
   }
 
   .bonita-dock-header span {
     color: var(--bonita-grey);
-    max-width: 48px;
-    font-size: 10px;
+    max-width: 66px;
+    font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    line-height: 1.22;
+    letter-spacing: 0.03em;
+    line-height: 1.18;
     text-transform: uppercase;
   }
 
