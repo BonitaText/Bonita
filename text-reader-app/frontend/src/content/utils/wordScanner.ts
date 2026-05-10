@@ -1,4 +1,4 @@
-const MARKER_CLASS = 'bonita-phrase-bold'
+const MARKER_CLASS = 'bonita-complex-word'
 
 const BLOCKED_TAGS = new Set([
   'script', 'style', 'noscript', 'textarea', 'input',
@@ -6,8 +6,11 @@ const BLOCKED_TAGS = new Set([
   'button', 'table', 'select', 'svg',
 ])
 
+const WORD_RE = /\b[A-Za-z][A-Za-z'-]*\b/g
+
 function shouldSkip(parent: Element | null): boolean {
   if (!parent) return true
+  // FIX: '#crxjs-app' → '#bonita-root'
   if (parent.closest('#bonita-root, .bonita-dock, .bonita-trigger, .bonita-font-popup, .bonita-pos-popup')) return true
   if (parent.closest(`.${MARKER_CLASS}`)) return true
   let cursor: Element | null = parent
@@ -16,42 +19,6 @@ function shouldSkip(parent: Element | null): boolean {
     cursor = cursor.parentElement
   }
   return false
-}
-
-function boldTextNode(textNode: Text, pattern: RegExp) {
-  const text = textNode.textContent ?? ''
-  const fragment = document.createDocumentFragment()
-  const boldedTerms = new Set<string>()
-  let lastIndex = 0
-  let touched = false
-  let match: RegExpExecArray | null
-
-  pattern.lastIndex = 0
-  while ((match = pattern.exec(text)) !== null) {
-    const matched = match[0]
-    const key = matched.toLowerCase()
-    if (boldedTerms.has(key)) continue
-
-    if (match.index > lastIndex) {
-      fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))
-    }
-
-    const span = document.createElement('span')
-    span.className = MARKER_CLASS
-    span.style.cssText = 'font-weight: 800; color: #3e236b;'
-    span.textContent = matched
-    fragment.appendChild(span)
-
-    touched = true
-    boldedTerms.add(key)
-    lastIndex = match.index + matched.length
-  }
-
-  if (!touched) return
-  if (lastIndex < text.length) {
-    fragment.appendChild(document.createTextNode(text.slice(lastIndex)))
-  }
-  textNode.replaceWith(fragment)
 }
 
 function getContentRoot(): Element {
@@ -63,18 +30,13 @@ function getContentRoot(): Element {
   return document.body
 }
 
-export function applyPhraseBolding(boldTargets: string[]) {
-  removePhraseBolding()
-  if (boldTargets.length === 0) return
+export function applyWordUnderlines(complexWords: string[]) {
+  removeWordUnderlines()
+  if (complexWords.length === 0) return
 
-  const sorted = [...boldTargets].sort((a, b) => b.length - a.length)
-  const escaped = sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const parts = sorted.map((t, i) =>
-    t.includes(' ') ? escaped[i] : `\\b${escaped[i]}\\b`
-  )
-  const pattern = new RegExp(`(${parts.join('|')})`, 'gi')
-
+  const wordSet = new Set(complexWords)
   const root = getContentRoot()
+
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
@@ -90,11 +52,42 @@ export function applyPhraseBolding(boldTargets: string[]) {
   }
 
   for (const textNode of textNodes) {
-    boldTextNode(textNode, pattern)
+    const text = textNode.textContent ?? ''
+    const fragment = document.createDocumentFragment()
+    let lastIndex = 0
+    let touched = false
+    let match: RegExpExecArray | null
+    WORD_RE.lastIndex = 0
+
+    while ((match = WORD_RE.exec(text)) !== null) {
+      const word = match[0]
+      const key = word.toLowerCase()
+      if (!wordSet.has(key)) continue
+
+      if (match.index > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))
+      }
+
+      const span = document.createElement('span')
+      span.className = MARKER_CLASS
+      span.style.cssText = 'text-decoration: underline dotted #6f4fd8; cursor: pointer;'
+      span.textContent = word
+      span.dataset.word = word
+      fragment.appendChild(span)
+
+      touched = true
+      lastIndex = match.index + word.length
+    }
+
+    if (!touched) continue
+    if (lastIndex < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(lastIndex)))
+    }
+    textNode.replaceWith(fragment)
   }
 }
 
-export function removePhraseBolding() {
+export function removeWordUnderlines() {
   const wrappers = document.querySelectorAll(`.${MARKER_CLASS}`)
   const parents = new Set<Element>()
   wrappers.forEach((wrapper) => {

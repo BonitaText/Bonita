@@ -1,10 +1,8 @@
 import { useRef, useState } from 'react'
 import { useFontApplier } from '../hooks/useFontApplier'
 import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
-import { usePhraseBolder } from '../hooks/usePhraseBolder'
+import { usePageAnalysis } from '../hooks/usePageAnalysis'
 import { usePOSHighlighter } from '../hooks/usePOSHighlighter'
-import { useSentenceSplitter } from '../hooks/useSentenceSplitter'
-import { useWordSimplifier } from '../hooks/useWordSimplifier'
 import FontSelector from './FontSelector'
 import LineFocusToggle from './LineFocusToggle'
 import PhraseBolding from './PhraseBolding'
@@ -59,9 +57,7 @@ const styles = `
     filter: saturate(1.08);
   }
 
-  .bonita-trigger.open {
-    border-radius: 50%;
-  }
+  .bonita-trigger.open { border-radius: 50%; }
 
   .bonita-trigger-mark {
     display: grid;
@@ -182,9 +178,7 @@ const styles = `
     transform: translateY(-50%) translateX(-2px);
   }
 
-  .bonita-font-wrapper {
-    position: relative;
-  }
+  .bonita-font-wrapper { position: relative; }
 
   .bonita-font-popup,
   .bonita-pos-popup {
@@ -201,6 +195,8 @@ const styles = `
     gap: 4px;
     min-width: 160px;
     animation: bonita-pop 180ms ease both;
+    max-height: 110px;
+    overflow-y: auto;
   }
 
   .bonita-font-option {
@@ -224,14 +220,8 @@ const styles = `
   }
 
   @keyframes bonita-pop {
-    from {
-      opacity: 0;
-      transform: translateX(6px) scale(0.98);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0) scale(1);
-    }
+    from { opacity: 0; transform: translateX(6px) scale(0.98); }
+    to   { opacity: 1; transform: translateX(0) scale(1); }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -261,12 +251,14 @@ function App() {
     moved: false,
   })
 
+  // ✅ Hooks updated: usePageAnalysis replaces useWordSimplifier,
+  //    useSentenceSplitter, and usePhraseBolder.
+  //    useFontApplier and usePOSHighlighter remain.
+  //    useLineFocusApplier remains.
   useFontApplier()
-  usePhraseBolder()
   usePOSHighlighter()
-  useSentenceSplitter()
-  useWordSimplifier()
   useLineFocusApplier()
+  usePageAnalysis()
 
   const onMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -296,9 +288,7 @@ function App() {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
-      if (!dragStateRef.current.moved) {
-        setOpen((o) => !o)
-      }
+      if (!dragStateRef.current.moved) setOpen((o) => !o)
     }
 
     document.addEventListener('mousemove', onMove)
