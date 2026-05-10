@@ -38,15 +38,34 @@ function preserveCase(original: string, replacement: string): string {
   return replacement
 }
 
+// Short CVC words like "stop"/"run"/"hit" double the final consonant before -ing/-ed
+function shouldDoubleFinalConsonant(word: string): boolean {
+  if (word.length < 3 || word.length > 5) return false
+  const consonant = /[bcdfghjklmnpqrstvz]/i
+  const vowel = /[aeiou]/i
+  const last = word[word.length - 1]
+  const second = word[word.length - 2]
+  const third = word[word.length - 3]
+  if (!consonant.test(last)) return false
+  if (!vowel.test(second)) return false
+  if (vowel.test(third)) return false
+  return true
+}
+
 // Re-inflect simple base word to match the suffix pattern of original
 function inflectByPattern(base: string, originalSuffix: string): string {
   if (base.includes(' ')) return base // multi-word — don't inflect
+  const doubled = base + base[base.length - 1]
   switch (originalSuffix) {
     case 'ing':
-      return base.endsWith('e') ? base.slice(0, -1) + 'ing' : base + 'ing'
+      if (base.endsWith('e')) return base.slice(0, -1) + 'ing'
+      if (shouldDoubleFinalConsonant(base)) return doubled + 'ing'
+      return base + 'ing'
     case 'ed':
     case 'd':
-      return base.endsWith('e') ? base + 'd' : base + 'ed'
+      if (base.endsWith('e')) return base + 'd'
+      if (shouldDoubleFinalConsonant(base)) return doubled + 'ed'
+      return base + 'ed'
     case 's':
     case 'es':
       return /(s|x|z|ch|sh)$/.test(base) ? base + 'es' : base + 's'
