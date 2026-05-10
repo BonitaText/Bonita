@@ -128,6 +128,53 @@ def flesch_score(text: str) -> float:
     )
     return round(max(0.0, min(100.0, score)), 2)
 
+def paragraph_complexity(text: str) -> dict:
+    """
+    Returns a complexity profile for a single paragraph.
+    
+    score:        0–100, lower = harder to read (mirrors Flesch-Kincaid)
+    action:       "none" | "split" | "llm"
+                  none  → readable as-is (score >= 60)
+                  split → complex enough to bullet-point (40–59)
+                  llm   → too dense for rule-based tools (score < 40)
+    """
+    sentences = split_sentences(text)
+    words = text.split()
+
+    if not words or not sentences:
+        return {"score": 100.0, "action": "none", "flesch": 100.0,
+                "avg_word_len": 0.0, "avg_sent_len": 0.0}
+
+    fk = flesch_score(text)
+    avg_word_len = sum(len(w.strip('.,!?()')) for w in words) / len(words)
+    avg_sent_len = len(words) / len(sentences)
+    syllable_density = sum(count_syllables(w) for w in words) / len(words)
+
+    # Start from Flesch score and apply penalties for density signals
+    score = fk
+    if avg_word_len > 6:
+        score -= (avg_word_len - 6) * 4     # long words = harder
+    if avg_sent_len > 20:
+        score -= (avg_sent_len - 20) * 1.5  # long sentences = harder
+    if syllable_density > 2:
+        score -= (syllable_density - 2) * 8 # polysyllabic = harder
+
+    score = round(max(0.0, min(100.0, score)), 2)
+
+    if score < 40:
+        action = "llm"
+    elif score < 60:
+        action = "split"
+    else:
+        action = "none"
+
+    return {
+        "score": score,
+        "action": action,
+        "flesch": fk,
+        "avg_word_len": round(avg_word_len, 2),
+        "avg_sent_len": round(avg_sent_len, 2),
+    }
 
 def count_syllables(word: str) -> int:
     word = word.lower().strip(".,!?")

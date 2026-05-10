@@ -1,15 +1,3 @@
-import { useEffect } from 'react'
-import { useSettings } from './useSettings'
-import { applySentenceSplit, removeSentenceSplit } from '../utils/sentenceSplitter'
-
-export function useSentenceSplitter() {
-  const { settings } = useSettings()
-
-  useEffect(() => {
-    if (settings.sentenceSplitting) {
-      applySentenceSplit()
-    } else {
-      removeSentenceSplit()
-    }
-  }, [settings.sentenceSplitting])
-}
+// This hook is deprecated — sentence splitting is now handled by usePageAnalysis.
+// File kept to avoid import errors from any remaining references.
+export function useSentenceSplitter() {}

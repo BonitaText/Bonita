@@ -10,7 +10,8 @@ const WORD_RE = /\b[A-Za-z][A-Za-z'-]*\b/g
 
 function shouldSkip(parent: Element | null): boolean {
   if (!parent) return true
-  if (parent.closest('#crxjs-app, .bonita-dock, .bonita-trigger, .bonita-font-popup, .bonita-pos-popup')) return true
+  // FIX: '#crxjs-app' → '#bonita-root'
+  if (parent.closest('#bonita-root, .bonita-dock, .bonita-trigger, .bonita-font-popup, .bonita-pos-popup')) return true
   if (parent.closest(`.${MARKER_CLASS}`)) return true
   let cursor: Element | null = parent
   while (cursor) {
@@ -20,17 +21,26 @@ function shouldSkip(parent: Element | null): boolean {
   return false
 }
 
+function getContentRoot(): Element {
+  const selectors = ['main', 'article', '[role="main"]', '#content', '.content']
+  for (const sel of selectors) {
+    const el = document.querySelector(sel)
+    if (el) return el
+  }
+  return document.body
+}
+
 export function applyWordUnderlines(complexWords: string[]) {
   removeWordUnderlines()
   if (complexWords.length === 0) return
 
   const wordSet = new Set(complexWords)
+  const root = getContentRoot()
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
-      const text = node.textContent ?? ''
-      if (!/[A-Za-z]/.test(text)) return NodeFilter.FILTER_REJECT
+      if (!/[A-Za-z]/.test(node.textContent ?? '')) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
     },
   })

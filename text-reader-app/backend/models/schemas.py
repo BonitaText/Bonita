@@ -15,7 +15,16 @@ class WebpageTextRequest(BaseModel):
     paragraphs: list[str]
     max_bold_terms: int = Field(default=3, ge=1)
 
+class ParagraphScore(BaseModel):
+    text: str          # first 120 chars as identifier
+    score: float
+    action: str        # "none" | "split" | "llm"
+    flesch: float
+    avg_word_len: float
+    avg_sent_len: float
+
 class WebpageProcessResponse(BaseModel):
-    bold_targets: list[str]        # flat list of keywords to bold page-wide
-    complex_words: list[str]       # words to underline + show definitions
-    sentences: list[str]           # sentences for sentence splitting
+    bold_targets: list[str]
+    complex_words: list[str]
+    sentences: list[str]
+    paragraph_scores: list[ParagraphScore]

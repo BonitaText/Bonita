@@ -6,11 +6,9 @@ const BLOCKED_TAGS = new Set([
   'button', 'table', 'select', 'svg',
 ])
 
-const WORD_RE = /\b[A-Za-z][A-Za-z'-]*\b/g
-
 function shouldSkip(parent: Element | null): boolean {
   if (!parent) return true
-  if (parent.closest('#crxjs-app, .bonita-dock, .bonita-trigger, .bonita-font-popup, .bonita-pos-popup')) return true
+  if (parent.closest('#bonita-root, .bonita-dock, .bonita-trigger, .bonita-font-popup, .bonita-pos-popup')) return true
   if (parent.closest(`.${MARKER_CLASS}`)) return true
   let cursor: Element | null = parent
   while (cursor) {
@@ -19,6 +17,7 @@ function shouldSkip(parent: Element | null): boolean {
   }
   return false
 }
+
 function boldTextNode(textNode: Text, pattern: RegExp) {
   const text = textNode.textContent ?? ''
   const fragment = document.createDocumentFragment()
@@ -55,25 +54,28 @@ function boldTextNode(textNode: Text, pattern: RegExp) {
   textNode.replaceWith(fragment)
 }
 
+function getContentRoot(): Element {
+  const selectors = ['main', 'article', '[role="main"]', '#content', '.content']
+  for (const sel of selectors) {
+    const el = document.querySelector(sel)
+    if (el) return el
+  }
+  return document.body
+}
+
 export function applyPhraseBolding(boldTargets: string[]) {
   removePhraseBolding()
   if (boldTargets.length === 0) return
 
-  // Sort longest first so "neurofibromatosis type 1" matches before "neurofibromatosis"
   const sorted = [...boldTargets].sort((a, b) => b.length - a.length)
-
-  const escaped = sorted.map((t) =>
-    t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  )
-
-  // Phrases use a literal match; single words use word boundaries
+  const escaped = sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const parts = sorted.map((t, i) =>
     t.includes(' ') ? escaped[i] : `\\b${escaped[i]}\\b`
   )
-
   const pattern = new RegExp(`(${parts.join('|')})`, 'gi')
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+  const root = getContentRoot()
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
       if (!/[A-Za-z]/.test(node.textContent ?? '')) return NodeFilter.FILTER_REJECT
@@ -91,7 +93,6 @@ export function applyPhraseBolding(boldTargets: string[]) {
     boldTextNode(textNode, pattern)
   }
 }
-
 
 export function removePhraseBolding() {
   const wrappers = document.querySelectorAll(`.${MARKER_CLASS}`)

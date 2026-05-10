@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
-from models.schemas import ProcessRequest, ProcessResponse, WebpageTextRequest, WebpageProcessResponse
-from services.nlp import split_sentences, extract_keywords, flesch_score, extract_keywords_per_paragraph, extract_complex_words
+from models.schemas import ProcessRequest, ProcessResponse, WebpageTextRequest, WebpageProcessResponse, ParagraphScore
+from services.nlp import split_sentences, extract_keywords, flesch_score, extract_keywords_per_paragraph, extract_complex_words, paragraph_complexity
 import fitz
 from . import merge_split_paragraphs
 import re
@@ -351,6 +351,7 @@ async def process_pdf(file: UploadFile = File(...),
         "sentences": sentences,
         "keywords": keywords
     }
+
 @router.post("/process/webpage", response_model=WebpageProcessResponse)
 async def process_webpage(body: WebpageTextRequest):
     if not body.paragraphs:
@@ -363,8 +364,17 @@ async def process_webpage(body: WebpageTextRequest):
     complex_words = extract_complex_words(filtered)
     sentences = split_sentences(full_text)
 
+    paragraph_scores = [
+        ParagraphScore(
+            text=p[:120],
+            **paragraph_complexity(p)
+        )
+        for p in filtered
+    ]
+
     return WebpageProcessResponse(
         bold_targets=bold_targets,
         complex_words=complex_words,
         sentences=sentences,
+        paragraph_scores=paragraph_scores,
     )
