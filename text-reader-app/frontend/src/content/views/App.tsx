@@ -201,6 +201,8 @@ const styles = `
     gap: 4px;
     min-width: 160px;
     animation: bonita-pop 180ms ease both;
+    max-height: 110px;
+    overflow-y: auto;
   }
 
   .bonita-font-option {
