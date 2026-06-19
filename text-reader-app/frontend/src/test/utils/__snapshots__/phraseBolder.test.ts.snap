@@ -8,35 +8,11 @@ exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] document
 ]
 `;
 
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (with trailing dot) is the target 1`] = `1`;
-
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (with trailing dot) is the target 2`] = `
-[
-  "U.S.",
-]
-`;
-
 exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens with "u.s.a" mid-sentence 1`] = `1`;
 
 exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens with "u.s.a" mid-sentence 2`] = `
 [
   "U.S.A",
-]
-`;
-
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what slice actually gets bolded for "u.s" at sentence start 1`] = `1`;
-
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what slice actually gets bolded for "u.s" at sentence start 2`] = `
-[
-  "U.S",
-]
-`;
-
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what slice actually gets bolded for "u.s" mid-sentence 1`] = `1`;
-
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what slice actually gets bolded for "u.s" mid-sentence 2`] = `
-[
-  "U.S",
 ]
 `;
 
