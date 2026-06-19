@@ -1,29 +1,32 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import App from './views/App.tsx'
+;(async () => {
+  if (window !== window.top) return
 
-const container = document.createElement('div')
-container.id = 'bonita-root'
-container.setAttribute('data-bonita-root', 'true')
+  const { StrictMode } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const { default: App } = await import('./views/App.tsx')
+  const { SettingsProvider } = await import('./providers/SettingsProvider.tsx')  
 
-// Keep pointer-events none on the shell; App enables them on trigger/dock
-container.style.cssText = `
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 2147483647;
-  pointer-events: none;
-`
+  const container = document.createElement('div')
+  container.id = 'bonita-root'
+  container.setAttribute('data-bonita-root', 'true')
 
-// Mount React directly into document — NO shadow DOM.
-// Shadow DOM isolates styles which breaks font injection and causes
-// shouldSkip() selector mismatches across the boundary.
-document.body.appendChild(container)
+  container.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2147483647;
+    pointer-events: none;
+  `
 
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+  document.body.appendChild(container)
+
+  createRoot(container).render(
+    <StrictMode>
+      <SettingsProvider> 
+        <App />
+      </SettingsProvider>  
+    </StrictMode>,
+  )
+})()

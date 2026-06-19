@@ -1,0 +1,6 @@
+// typedoc.json
+{
+  "entryPoints": ["src/content", "src/test"],
+  "entryPointStrategy": "expand",
+  "tsconfig": "tsconfig.app.json"
+}

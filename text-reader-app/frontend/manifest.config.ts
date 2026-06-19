@@ -21,9 +21,6 @@ export default defineManifest({
     'contentSettings',
     'storage',
   ],
-  host_permissions: [
-    'http://localhost:8000/*',
-  ],
   content_scripts: [{
     js: ['src/content/main.tsx'],
     matches: ['http://*/*', 'https://*/*'],

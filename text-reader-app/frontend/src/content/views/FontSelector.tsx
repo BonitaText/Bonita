@@ -1,7 +1,12 @@
 import { Type } from 'lucide-react'
-import { useState, useRef, useEffect } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import { BonitaSettings } from '../../shared/settings'
+import { useFontApplier } from '../hooks/useFontApplier'
+
+interface FontSelectorProps {
+  open: boolean
+  onOpen: () => void
+}
 
 const FONTS: { value: BonitaSettings['font']; label: string }[] = [
   { value: 'default', label: 'Default' },
@@ -10,27 +15,14 @@ const FONTS: { value: BonitaSettings['font']; label: string }[] = [
   { value: 'verdana', label: 'Verdana' },
 ]
 
-export default function FontSelector() {
+export default function FontSelector({ open, onOpen }: FontSelectorProps) {
   const { settings, updateSetting } = useSettings()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
+  useFontApplier()
   return (
-    <div className="bonita-font-wrapper" ref={ref}>
+    <div className="bonita-font-wrapper">
       <button
         className={`bonita-icon-btn ${settings.font !== 'default' ? 'active' : ''}`}
-        onClick={() => setOpen(!open)}
+        onClick={onOpen}
         data-tooltip="Font"
         aria-label="Font"
       >
@@ -44,7 +36,7 @@ export default function FontSelector() {
               className={`bonita-font-option ${settings.font === f.value ? 'selected' : ''}`}
               onClick={() => {
                 updateSetting('font', f.value)
-                setOpen(false)
+                onOpen()
               }}
             >
               {f.label}

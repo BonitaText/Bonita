@@ -1,3 +1,25 @@
+/**
+ * @file popup/App.tsx
+ *
+ * Extension popup UI.
+ *
+ * Controls which tool icons appear in the on-page toolbar dock (rendered by
+ * the content script's {@link views/App.tsx}) via
+ * {@link BonitaSettings.enabledTools}, plus the active reading font.
+ *
+ * ## Visibility vs. active state
+ * Each feature card here toggles whether a tool's icon is **shown in the
+ * dock at all** — it does not turn the tool on or off while active on a
+ * page. That distinction matters because:
+ * - `enabledTools[id]` (this file) — controls dock icon visibility.
+ * - `settings[id]` (e.g. `sentenceSplitting`, `lineFocus`) — controls
+ *   whether a *visible* tool is currently applying its effect on the page,
+ *   managed by the toolbar dock itself.
+ *
+ * Unchecking a card here hides its icon from the dock entirely; it does not
+ * merely grey it out, so a hidden tool cannot be activated until its card is
+ * re-checked.
+ */
 import {
   BookOpen,
   Brain,
@@ -12,19 +34,23 @@ import {
   Volume2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { BonitaSettings, defaultSettings, getSettings, saveSettings } from '@/shared/settings'
-
-type ToggleKey = keyof Pick<
+import {
   BonitaSettings,
-  | 'sentenceSplitting'
-  | 'keywordBolding'
-  | 'wordSimplification'
-  | 'lineFocus'
-  | 'tts'
-> | 'posEnabled'
+  defaultSettings,
+  getSettings,
+  saveSettings,
+  ToolId,
+} from '@/shared/settings'
 
+/**
+ * Describes one feature card in the popup grid.
+ *
+ * `key` is a {@link ToolId} — it indexes directly into
+ * `settings.enabledTools`, so adding a new toggleable tool only requires
+ * adding a new entry here plus a matching {@link ToolId} union member.
+ */
 const featureToggles: Array<{
-  key: ToggleKey
+  key: ToolId
   icon: typeof List
   title: string
   detail: string
@@ -48,7 +74,7 @@ const featureToggles: Array<{
     detail: 'Underline complex words with simpler hover hints.',
   },
   {
-    key: 'posEnabled',
+    key: 'pos',
     icon: Palette,
     title: 'Grammar color',
     detail: 'Add lightweight noun, verb, and adjective cues.',
@@ -74,6 +100,13 @@ const fonts: Array<{ value: BonitaSettings['font']; label: string }> = [
   { value: 'verdana', label: 'Verdana' },
 ]
 
+/**
+ * Root popup component.
+ *
+ * Loads {@link BonitaSettings} on mount, then lets the user toggle dock-icon
+ * visibility per tool, apply a one-click "calm reading" preset, and pick the
+ * active reading font.
+ */
 function App() {
   const [settings, setSettings] = useState<BonitaSettings>(defaultSettings)
 
@@ -81,11 +114,22 @@ function App() {
     getSettings().then(setSettings)
   }, [])
 
+  /**
+   * Count of tools currently visible in the toolbar dock, shown in the
+   * summary header as "N tools active".
+   */
   const activeCount = useMemo(
-    () => featureToggles.filter((feature) => (feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key])).length,
+    () => featureToggles.filter((feature) => settings.enabledTools[feature.key]).length,
     [settings],
   )
 
+  /**
+   * Updates a single top-level {@link BonitaSettings} key, optimistically
+   * applying it to local state and persisting it via {@link saveSettings}.
+   *
+   * @param key   - The settings key to update.
+   * @param value - The new value for that key.
+   */
   const updateSetting = <K extends keyof BonitaSettings>(
     key: K,
     value: BonitaSettings[K],
@@ -95,16 +139,32 @@ function App() {
     void saveSettings(next)
   }
 
-  const enableReadingPreset = () => {
-    const next: BonitaSettings = {
-      ...settings,
+  /**
+   * Toggles a single tool's dock-icon visibility on or off.
+   *
+   * @param id      - The {@link ToolId} to toggle.
+   * @param visible - `true` to show the tool's icon in the dock, `false`
+   *   to hide it entirely.
+   */
+  const setToolVisible = (id: ToolId, visible: boolean): void => {
+    updateSetting('enabledTools', { ...settings.enabledTools, [id]: visible })
+  }
+
+  /**
+   * Shows every tool in the dock at once — the "calm reading" preset.
+   *
+   * This only affects dock *visibility*; it does not change whether any
+   * individual tool is currently active on the page.
+   */
+  const enableReadingPreset = (): void => {
+    updateSetting('enabledTools', {
       sentenceSplitting: true,
       keywordBolding: true,
       wordSimplification: true,
+      pos: true,
       lineFocus: true,
-    }
-    setSettings(next)
-    void saveSettings(next)
+      tts: true,
+    })
   }
 
   return (
@@ -138,15 +198,16 @@ function App() {
         <FileText size={18} />
         <span>
           <strong>Apply calm reading preset</strong>
-          <small>Chunk text, bold cues, word help, and line focus</small>
+          <small>Show every tool in the toolbar</small>
         </span>
       </button>
 
       <section className="popup-grid" aria-label="Bonita feature toggles">
         {featureToggles.map((feature) => {
           const Icon = feature.icon
+          const visible = settings.enabledTools[feature.key]
           return (
-            <label className={`feature-card ${(feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key]) ? 'active' : ''}`} key={feature.key}>
+            <label className={`feature-card ${visible ? 'active' : ''}`} key={feature.key}>
               <span className="feature-icon">
                 <Icon size={18} strokeWidth={2} />
               </span>
@@ -156,10 +217,8 @@ function App() {
               </span>
               <input
                 type="checkbox"
-                checked={(feature.key === 'posEnabled' ? Object.values(settings.posEnabled).some(Boolean) : settings[feature.key])}
-                onChange={(event) => feature.key === 'posEnabled'
-                    ? updateSetting('posEnabled', { verbs: event.currentTarget.checked, nouns: event.currentTarget.checked, adjectives: event.currentTarget.checked })
-                    : updateSetting(feature.key, event.currentTarget.checked)}
+                checked={visible}
+                onChange={(event) => setToolVisible(feature.key, event.currentTarget.checked)}
               />
             </label>
           )

@@ -5,25 +5,39 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "docs": "typedoc --out docs",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@fontsource/opendyslexic": "^5.2.5",
     "compromise": "^14.15.0",
+    "fast-xml-parser": "^5.8.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.4.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/adm-zip": "^0.5.8",
     "@types/chrome": "^0.1.37",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/ui": "^4.1.7",
+    "adm-zip": "^0.5.17",
+    "jsdom": "^29.1.1",
+    "typedoc": "^0.28.19",
     "typescript": "~5.9.3",
-    "vite": "^8.0.0",
-    "vite-plugin-zip-pack": "^1.2.4"
+    "vite": "^5.4.21",
+    "vite-plugin-zip-pack": "^1.2.4",
+    "vitest": "^4.1.9"
   }
 }

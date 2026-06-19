@@ -12,16 +12,19 @@ export default defineConfig({
       '@': `${path.resolve(__dirname, 'src')}`,
     },
   },
+  server: {
+    port: 5173,
+    hmr: {
+      port: 5173,
+    },
+    cors: {
+      origin: [/chrome-extension:\/\//],
+    },
+  },
+  
   plugins: [
     react(),
     crx({ manifest }),
     zip({ outDir: 'release', outFileName: `crx-${name}-${version}.zip` }),
   ],
-  server: {
-    cors: {
-      origin: [
-        /chrome-extension:\/\//,
-      ],
-    },
-  },
 })
