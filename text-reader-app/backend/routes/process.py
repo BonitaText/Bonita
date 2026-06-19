@@ -1,15 +1,30 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from models.schemas import ProcessRequest, ProcessResponse, WebpageTextRequest, WebpageProcessResponse, ParagraphScore
-from services.nlp import split_sentences, extract_keywords, flesch_score, extract_keywords_per_paragraph, extract_complex_words, paragraph_complexity
+from services.nlp import (
+    split_sentences, extract_keywords, flesch_score,
+    extract_keywords_from_docs, extract_complex_words_from_docs,
+    paragraph_complexity_from_doc, nlp_general, nlp_sci,
+)
 import fitz
 from . import merge_split_paragraphs
 import re
+import hashlib
 from pydantic import BaseModel, Field
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# Backend response cache — keyed by hash of the paragraph list.
+# Same page visited twice (or extension reopened) returns instantly.
+# ---------------------------------------------------------------------------
+_webpage_cache: dict[str, WebpageProcessResponse] = {}
 
-from collections import Counter
+def _paragraphs_hash(paragraphs: list[str]) -> str:
+    return hashlib.md5("|".join(paragraphs).encode()).hexdigest()
+
+
 class PdfParams(BaseModel):
     page_number_margin_px: float = Field(
         55.0,
@@ -35,6 +50,7 @@ class PdfParams(BaseModel):
         description="If True, keep the references/bibliography section."
     )
 
+
 _PAGE_ARTIFACT_RE = re.compile(
     r"""^(
         \d+                                     # bare page number
@@ -49,10 +65,6 @@ _PAGE_ARTIFACT_RE = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
-# FIX 1: Expanded author-line pattern for running headers like "Mackey et al"
-# that appear near the page edge but are too short to be caught by _PAGE_ARTIFACT_RE.
-# Matches "Lastname et al", "Lastname et al.", and bare author surnames used as
-# journal running heads (1–3 capitalised words, optionally followed by "et al").
 _RUNNING_AUTHOR_RE = re.compile(
     r"""^(
         [A-Z][a-z]+(\s+[A-Z][a-z]+){0,2}   # 1–3 capitalised words (surname/s)
@@ -63,25 +75,16 @@ _RUNNING_AUTHOR_RE = re.compile(
 
 def _is_page_artifact(text: str, bbox: tuple, page_height: float,
                        margin: float) -> bool:
-    """True for page numbers, running headers / footers."""
     stripped = text.strip()
-
-    # FIX 1: raise the length gate slightly and add the author-line check.
-    # Original was >80; keeping that but also catching short author-only lines
-    # that are near the edge.
     if len(stripped) > 80:
         return False
-
     _, y0, _, y1 = bbox
     near_edge = y0 < margin or y1 > (page_height - margin)
     if not near_edge:
         return False
-
     return bool(_PAGE_ARTIFACT_RE.match(stripped)) or bool(_RUNNING_AUTHOR_RE.match(stripped))
 
 
-# Patterns that mark a labelled section heading written in body-size text,
-# e.g. "Methods:", "Results:", "Discussion:", "Background:", "Conclusions:".
 _SECTION_LABEL_RE = re.compile(
     r"""^(
         abstract | background | introduction | methods? | results?
@@ -93,13 +96,6 @@ _SECTION_LABEL_RE = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
-
-# ---------------------------------------------------------------------------
-# Embedded-heading splitter
-# ---------------------------------------------------------------------------
-# Pattern A — colon-labeled abstract headings:
-#   "Background: ... Methods: ..."
-# The label is one of the known section words followed immediately by a colon.
 _COLON_LABEL_RE = re.compile(
     r'(?<!\w)'
     r'(Background|Objective|Methods?|Results?|Discussion|Conclusions?'
@@ -108,39 +104,16 @@ _COLON_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Pattern B — un-labeled inline headings embedded inside a body block.
-# These appear when the PDF renderer concatenates a heading line with the
-# body paragraph that follows it into a single text block.
-#
-# A heading candidate sits between two sentence boundaries:
-#   • preceded by a sentence-ending character (. ! ?)
-#   • contains no sentence-ending punctuation itself (it's a phrase, not a sentence)
-#   • 3–15 words long
-#   • followed by a capital letter that starts the next proper sentence
-#     (Capital + lowercase confirms it's a new sentence, not an acronym)
 _EMBEDDED_HEADING_RE = re.compile(
-    r'(?<=[.!?])\s+'           # after sentence-ending punctuation + whitespace
+    r'(?<=[.!?])\s+'
     r'(?P<heading>'
-        r'[A-Za-z0-9][^.!?]{2,79}'  # 3–80 chars, no sentence-ending punct inside
+        r'[A-Za-z0-9][^.!?]{2,79}'
     r')'
-    r'(?=\s+[A-Z][a-z])',      # lookahead: Capital-then-lowercase starts next sentence
+    r'(?=\s+[A-Z][a-z])',
 )
 
 
 def _split_embedded_headings(structured: list[dict]) -> list[dict]:
-    """
-    Split body blocks that have headings baked into them.
-
-    Two cases are handled:
-      A) Colon-labeled abstract headings: "Background: … Methods: …"
-      B) Title-case headings run-on after a sentence: "… highlighted below.
-         p53 has protein domains typical of transcriptional activators
-         Similarly to other transcription factors …"
-
-    Non-body items pass through unchanged.
-    The function applies pass A first, then pass B on any remaining body items.
-    """
-
     def _apply_colon_split(item: dict) -> list[dict]:
         parts = _COLON_LABEL_RE.split(item["text"])
         if len(parts) == 1:
@@ -161,7 +134,6 @@ def _split_embedded_headings(structured: list[dict]) -> list[dict]:
         return out
 
     def _apply_embedded_split(item: dict) -> list[dict]:
-        """Split on heading phrases embedded inside body text."""
         text = item["text"]
         matches = [
             m for m in _EMBEDDED_HEADING_RE.finditer(text)
@@ -169,39 +141,31 @@ def _split_embedded_headings(structured: list[dict]) -> list[dict]:
         ]
         if not matches:
             return [item]
-
         out: list[dict] = []
         prev_end = 0
         for m in matches:
-            # text before this heading
             before = text[prev_end:m.start()].strip()
             if before:
                 out.append({**item, "text": before})
-            # the heading itself
             out.append({"text": m.group("heading").strip(),
                         "role": "heading", "bold": False, "italic": False})
             prev_end = m.end()
-        # remainder after last heading
         tail = text[prev_end:].strip()
         if tail:
             out.append({**item, "text": tail})
         return out
 
-    # --- main pass ---
     result: list[dict] = []
     for item in structured:
         if item["role"] != "body":
             result.append(item)
             continue
-        # Pass A: colon labels
         after_a = _apply_colon_split(item)
-        # Pass B: embedded title-case headings (on body items only)
         for sub in after_a:
             if sub["role"] == "body":
                 result.extend(_apply_embedded_split(sub))
             else:
                 result.append(sub)
-
     return result
 
 
@@ -220,7 +184,6 @@ def extract_structured_text(doc, params: PdfParams):
                 )
                 if not line_text:
                     continue
-
                 first_span = line["spans"][0]
                 bbox = line["bbox"]
                 if _is_page_artifact(line_text, bbox, page_height, params.page_number_margin_px):
@@ -237,14 +200,12 @@ def extract_structured_text(doc, params: PdfParams):
     if not all_lines:
         return []
 
-    # body font size = most common size among plausible body spans
     sizes = [
         round(l["size"]) for l in all_lines
         if round(l["size"]) >= params.min_plausible_font_size
     ]
     body_size = Counter(sizes).most_common(1)[0][0]
 
-    # find column margins — take the two most common x_lefts among body lines
     body_x_lefts = [l["x_left"] for l in all_lines if round(l["size"]) == body_size]
     margin_counts = Counter(body_x_lefts).most_common()
     col_margins = sorted([m[0] for m in margin_counts[:2]])
@@ -254,14 +215,10 @@ def extract_structured_text(doc, params: PdfParams):
         nearest = min(col_margins, key=lambda m: abs(x_left - m))
         return x_left > nearest + indent_tolerance
 
-    # FIX 2: Detect bold-only headings at body size.
-    # A line is a heading if it is either large enough OR bold at body size
-    # and matches a known section-label pattern.
     def is_heading(line: dict) -> bool:
         size = round(line["size"])
         if size >= body_size + 3:
             return True
-        # bold body-sized line whose text looks like a section label
         if size >= body_size - 1 and line["bold"]:
             if _SECTION_LABEL_RE.match(line["text"].strip()):
                 return True
@@ -282,8 +239,6 @@ def extract_structured_text(doc, params: PdfParams):
 
     for line in all_lines:
         size = round(line["size"])
-
-        # heading (size-based or bold section-label)
         if is_heading(line):
             flush_paragraph()
             structured.append({
@@ -293,16 +248,11 @@ def extract_structured_text(doc, params: PdfParams):
                 "italic": line["italic"]
             })
             continue
-
-        # caption / footnote / tiny text — drop silently
         if size < params.min_plausible_font_size or size < body_size - 1:
             flush_paragraph()
             continue
-
-        # body line — indent means new paragraph
         if is_indented(line["x_left"]):
             flush_paragraph()
-
         current_paragraph.append(line["text"])
 
     flush_paragraph()
@@ -310,17 +260,18 @@ def extract_structured_text(doc, params: PdfParams):
 
 
 def structured_to_plain(structured):
-    # collapse to plain text for NLP processing
     return " ".join([s["text"] for s in structured if s["role"] == "body"])
 
 
 @router.post("/process/pdf")
-async def process_pdf(file: UploadFile = File(...),
+async def process_pdf(
+    file: UploadFile = File(...),
     page_number_margin_px: float = Query(55.0),
     min_paragraph_words: int = Query(6),
     column_cluster_tolerance_px: float = Query(20.0),
     min_plausible_font_size: int = Query(7),
-    include_references: bool = Query(False)):
+    include_references: bool = Query(False),
+):
     contents = await file.read()
     try:
         doc = fitz.open(stream=contents, filetype="pdf")
@@ -330,14 +281,14 @@ async def process_pdf(file: UploadFile = File(...),
             detail=f"Could not open PDF — the file may be corrupt or truncated: {exc}"
         )
     params = PdfParams(
-            page_number_margin_px=page_number_margin_px,
-            min_paragraph_words=min_paragraph_words,
-            column_cluster_tolerance_px=column_cluster_tolerance_px,
-            min_plausible_font_size=min_plausible_font_size,
-            include_references=include_references,
-        )
+        page_number_margin_px=page_number_margin_px,
+        min_paragraph_words=min_paragraph_words,
+        column_cluster_tolerance_px=column_cluster_tolerance_px,
+        min_plausible_font_size=min_plausible_font_size,
+        include_references=include_references,
+    )
     structured = extract_structured_text(doc, params)
-    structured = _split_embedded_headings(structured)      # ← split colon-labels and run-on headings
+    structured = _split_embedded_headings(structured)
     structured = merge_split_paragraphs.merge_split_paragraphs(structured)
     plain_text = structured_to_plain(structured)
 
@@ -352,29 +303,51 @@ async def process_pdf(file: UploadFile = File(...),
         "keywords": keywords
     }
 
+
 @router.post("/process/webpage", response_model=WebpageProcessResponse)
 async def process_webpage(body: WebpageTextRequest):
     if not body.paragraphs:
         raise HTTPException(status_code=400, detail="No paragraphs provided.")
 
     filtered = [p.strip() for p in body.paragraphs if len(p.strip().split()) >= 18]
-    full_text = " ".join(filtered)
+    if not filtered:
+        raise HTTPException(status_code=400, detail="No paragraphs long enough to process.")
 
-    bold_targets = extract_keywords_per_paragraph(filtered, max_terms=body.max_bold_terms)
-    complex_words = extract_complex_words(filtered)
-    sentences = split_sentences(full_text)
+    # Return cached result if we've seen this exact page before
+    cache_key = _paragraphs_hash(filtered)
+    if cache_key in _webpage_cache:
+        return _webpage_cache[cache_key]
+
+    # Single parallel spaCy pass — replaces the N+3 individual nlp() calls
+    def run_general() -> list:
+        return list(nlp_general.pipe(filtered, batch_size=16))
+
+    def run_sci() -> list:
+        return list(nlp_sci.pipe(filtered, batch_size=16)) if nlp_sci else []
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        general_docs = ex.submit(run_general).result()
+        sci_docs     = ex.submit(run_sci).result()
+
+    # Everything derived from the same pre-parsed docs — no re-running spaCy
+    bold_targets  = extract_keywords_from_docs(general_docs, sci_docs, max_terms=body.max_bold_terms)
+    complex_words = extract_complex_words_from_docs(general_docs)
+    sentences     = [sent.text.strip() for doc in general_docs for sent in doc.sents]
 
     paragraph_scores = [
         ParagraphScore(
-            text=p[:120],
-            **paragraph_complexity(p)
+            text=filtered[i][:120],
+            **paragraph_complexity_from_doc(doc, filtered[i]),
         )
-        for p in filtered
+        for i, doc in enumerate(general_docs)
     ]
 
-    return WebpageProcessResponse(
+    result = WebpageProcessResponse(
         bold_targets=bold_targets,
         complex_words=complex_words,
         sentences=sentences,
         paragraph_scores=paragraph_scores,
     )
+
+    _webpage_cache[cache_key] = result
+    return result
