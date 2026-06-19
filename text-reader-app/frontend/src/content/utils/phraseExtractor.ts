@@ -1,5 +1,5 @@
 /**
- * utils/phraseExtractor.ts
+ * @file utils/phraseExtractor.ts
  *
  * Keyword extraction using compromise (NLP) + MeSH dictionary + science patterns.
  *
