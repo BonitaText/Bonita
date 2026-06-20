@@ -1,4 +1,4 @@
-# Bonita — Architectural Decisions
+# Bonita - Architectural Decisions
 
 This document explains major design decisions, system changes, and tradeoffs made during the development of Bonita.
 
@@ -101,18 +101,15 @@ Bonita runs entirely in the browser with no backend.
 - reduced ability to use heavy ML models
 - less contextual understanding than server-based NLP
 - more reliance on heuristics and approximations
+- in general, limited accuracy
 
 ---
 
 ## 5. UI as a Control System (Toolbar Architecture)
 
-### Design shift
+### Design 
 
-Bonita moved from:
-> feature toggles in code
-
-to:
-> user-controlled cognitive processing tools
+User-controlled cognitive processing tools.
 
 ### Current model includes:
 - draggable floating toolbar
@@ -127,7 +124,7 @@ This enables:
 - per-website tuning of readability
 - modular combination of features
 
-Instead of a fixed pipeline, Bonita behaves like a configurable system.
+Instead of a fixed pipeline, Bonita behaves like a configurable system. This makes up for accuracy issues, and creates flexibility to meet the diverse needs of each individual.
 
 ---
 
@@ -137,14 +134,28 @@ Bonita intentionally prioritizes:
 
 ### Chosen strengths
 - speed over deep linguistic accuracy
-- explainability over black-box models
 - consistency across devices over complexity
 - privacy over cloud-based intelligence
+- heavy customizability
+- ZERO daily use limits.
 
-### Known limitations
-- heuristic inconsistency across domains
+### Known faults
 - imperfect semantic understanding
-- no deep contextual reasoning layer
+  - particularly with scientific research papers
+- limited context comprehension
+- some unnecessary definitions
+
+### Reasoning: 
+
+We could have:
+
+- cheaply en masse bold every term, provide all the available definitions for every word, and split every sentence.
+
+Or 
+
+- slowly extract the information and push them through LLM's, and make users pay per article for 100% accuracy.
+
+Instead we decided to balance quantity and quality of resources in hopes to meet user *daily* needs for free. 
 
 ---
 
@@ -152,10 +163,12 @@ Bonita intentionally prioritizes:
 
 Future development will follow these principles:
 
-- improve heuristic systems before introducing ML
-- avoid backend dependency unless absolutely necessary
+- improve heuristic systems before introducing ML, limiting latency and size
+- avoid backend dependency unless absolutely necessary, for affordability
 - prioritize user control over automated decisions
 - treat AI as optional enhancement, not core requirement
+
+Ultimately aiming for functionality first, always.
 
 ---
 
