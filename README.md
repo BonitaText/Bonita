@@ -1,4 +1,4 @@
-# Bonita — Project Notes
+# Bonita
 
 ## Problem
 
@@ -10,70 +10,97 @@ A Chrome extension that restructures walls of website text into readable content
 
 ---
 
-## Tech Stack
+## Overview
 
-| Tool | Purpose |
-|---|---|
-| React + Vite + CRXJS | Chrome extension frontend |
-| FastAPI (Python) | Backend server |
-| spaCy | Keyword/phrase extraction, POS tagging |
-| Flesch-Kincaid | Readability scoring |
-| OpenDyslexia | Dyslexic-friendly font option |
+Bonita is a fully client-side Chrome extension that transforms dense web content into structured, skimmable, and accessible formats.
+
+It improves readability with features that can: break text into point form, bold important terms, and unpack complex words on hover, and additional focus and audio reading tools.
+
+Although we designed it with neurodivergent users in mind, Bonita improves readability for everyone.
 
 ---
 
-## Processing Pipeline
+## Core Philosophy
 
-### 1. Getting text out
-- **Websites** — Read the page DOM directly. Use Readability.js to strip navbars, ads, footers, and surface only the main content.
+- Fully client-side processing (no backend required).
+- Privacy-first design (no data sent off-device).
+- Deterministic, explainable transformations (no black-box AI dependency).
+- Built for accessibility.
 
-### 2. Processing (Traditional NLP — free, instant, no limits)
-- **Sentence splitting** — Rule-based, break run-on paragraphs into individual sentences, then optionally convert to bullet points
-- **Keyword/phrase bolding** — spaCy noun phrase extraction to identify and bold important terms
-- **POS tagging** — Color-code verbs, nouns, adjectives etc. for users who benefit from grammatical highlighting
-- **Display adjustments** — Font changes (including OpenDyslexia), spacing, line height — pure CSS/DOM manipulation
-- **Text-to-speech** — Native browser Speech Synthesis API to read page content aloud, with controls for speed and voice selection
-
-### 3. Output
-
-- **Page overlay** — Replace rendered content on screen with the restructured version. The original page is never modified — the extension swaps what the browser is showing via DOM manipulation. Works for websites and PDFs.
+---
 
 ## Features
 
-### Core (v1)
-- Sentence splitting → bullet point conversion
-- Keyword/phrase bolding (spaCy)
-- POS color-coding (verbs, nouns, adjectives)
-- Font switching (including OpenDyslexia)
-- Line focus mode (fade all lines except the one being read)
-- Text-to-speech (TTS)
+### Improved Readability
+- Sentence splitter → converts dense paragraphs into bullet points.
+- Line focus mode → highlights a reading band while fading surrounding text, so you never lose your place.
+- Parts of speech highlighting (verbs, nouns, adjectives).
+- Keyword bolding for skimming important concepts.
+- Accurate science term detection using weighted phrase scoring (MeSH + heuristics).
 
-### For the future:
-- LLM (for a TLDR)
-- Audio cues for attention
-- Image handling (toggle: keep in place / strip / collect at bottom / show alt text as caption)
-- Save and load setting presets
-- Pdf parsing
-- Synonym suggestor
+### Vocabulary Support
+- Underlining words based on complexity.
+- Synonyms and definitions shown on hover.
+- Detail level depends on term difficulty.
+
+### Additional Tools
+- Text-to-speech (hover-based reading).
+- OpenDyslexic font support and font switching.
+
+### UI Controls
+- Floating draggable toolbar.
+- Feature toggles per tool.
+- Adjustable sliders (bolding and underlining threshold, focus line height).
+- Custom bold colors.
+- Popup settings menu for global configuration.
 
 ---
-## Readability Scoring (Flesch-Kincaid)
 
-**Formula:** 206.835 – 1.015 × (words/sentences) – 84.6 × (syllables/words)
+## How It Works
 
-| Score | Level |
-|---|---|
-| 90–100 | Very easy — children's books |
-| 60–70 | Plain English — conversational |
-| 30–50 | Academic/dense — college level |
-| 0–30 | Very hard — legal docs, research papers |
+1. Extract content from the page DOM (Readability.js removes noise).
+2. Analyze text using lightweight NLP-inspired heuristics.
+3. Transform structure (split, highlight, simplify).
+4. Render updated overlay without modifying the original page.
 
-Run per paragraph, not per page, so only the dense sections trigger an LLM call.
+---
 
-### How the UI pieces divide responsibilities
+## Tech Stack
 
-| Piece | How accessed | Purpose |
-|---|---|---|
-| Side panel | Pinned to browser via chrome.sidePanel API | Active reading tools — TTS controls, line focus toggle, word simplification, TLDR, POS highlighting |
-| Popup | Click extension icon in Chrome toolbar | Settings — font choice, color config, feature toggles, presets |
+- React + Vite + CRXJS (Chrome extension frontend).
+- Content scripts for DOM manipulation.
+- compromise (lightweight NLP tagging).
+- Custom heuristic scoring systems.
+- Web Speech API (TTS).
+- CSS + DOM-based rendering system.
 
+---
+
+## Key Features Summary
+
+Bonita combines:
+- structural transformation (splitting + formatting).
+- semantic emphasis (keywords + POS tagging).
+- cognitive support tools (simplification + TTS).
+- user-controlled configurability (toolbar system).
+
+---
+
+## Future Ideas
+
+- Improved phrase detection.
+- Better cross-domain keyword ranking.
+- Optional advanced language models (research stage, not required).
+- Ability to work on differing file types.
+- Preset accessibility profiles (speed read mode, in-depth analysis mode, etc).
+- Implementing stronger language models that can run locally.
+- Split Bonita for science and academia, and the base Bonita.
+  - This is because there are many research specific features that are otherwise bloat for non-researchers.
+- Integration with Obsidian and Notion, so you can save simplified articles.
+- More convenience tools such as font colour changes, dark mode, highlighting etc. 
+
+---
+
+## Project Status
+
+Unreleased, in development.
