@@ -60,13 +60,40 @@ const styles = `
   }
 `
 
+/**
+ * Props for the Toggle component.
+ *
+ * A labelled row pairing an icon + text label with a pill-style on/off
+ * switch. Fully controlled — the parent owns `enabled` and receives the
+ * next value through `onChange`; the component holds no internal state.
+ */
 interface ToggleProps {
+  /** Text shown next to the icon, and used to build the switch's aria-label. */
   label: string
+
+  /** Icon rendered to the left of the label. */
   icon: LucideIcon
+
+  /** Current on/off state of the switch. */
   enabled: boolean
+
+  /** Called with the negated value whenever the switch is clicked. */
   onChange: (next: boolean) => void
 }
 
+/**
+ * Toggle
+ *
+ * Renders an icon, a label, and a pill switch on a single row.
+ *
+ * Behaviour:
+ * - Clicking the switch calls `onChange(!enabled)`; the parent is
+ *   responsible for persisting the new value and re-rendering with it.
+ * - The `.on` class on the switch drives both its background colour and
+ *   the knob's `translateX` via CSS, so the visual state always mirrors
+ *   the `enabled` prop directly (no animation state is held locally).
+ * - The switch's accessible name is `Toggle {label}`.
+ */
 export default function Toggle({ label, icon: Icon, enabled, onChange }: ToggleProps) {
   return (
     <>
