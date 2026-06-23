@@ -36,11 +36,6 @@ jobs:
           cd text-reader-app/frontend
           npm run test:coverage
 
-      - name: Generate Vitest UI Static HTML
-        run: |
-          cd text-reader-app/frontend
-          npm run test:ui
-
       - name: Aggregate Dashboards for Deployment
         run: |
           # Create a clean deployment container folder at the project root
@@ -49,7 +44,6 @@ jobs:
           # Move assets into organized routing structures
           cp -r text-reader-app/frontend/docs ./public-dashboard/typedoc
           cp -r text-reader-app/frontend/coverage ./public-dashboard/coverage
-          cp -r text-reader-app/frontend/html-report ./public-dashboard/test-ui
           
           # Create a clean portal landing page
           cat << 'EOF' > ./public-dashboard/index.html
@@ -70,11 +64,10 @@ jobs:
           </head>
           <body>
               <h1>Bonita Engineering Hub</h1>
-              <p>Automated build artifacts for the text-reader frontend:</p>
+              <p>Generated documentation and test coverage for the Bonita frontend:</p>
               <ul>
                   <li><a href="./typedoc/index.html">📖 Source Code Documentation (TypeDoc)</a></li>
                   <li><a href="./coverage/index.html">🧪 Code Coverage Reports (Vitest)</a></li>
-                  <li><a href="./test-ui/index.html">💻 Interactive Test Dashboard (Vitest UI)</a></li>
               </ul>
           </body>
           </html>
