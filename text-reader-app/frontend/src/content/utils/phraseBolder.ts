@@ -33,6 +33,16 @@
  *
  *   See getBlockAncestor, getTextNodeOffset, and boldTextNode.
  */
+// Cached stop word set — loaded once, same asset as phraseExtractor
+
+let stopWords: Set<string> | null = null
+
+async function getStopWords(): Promise<Set<string>> {
+  if (stopWords) return stopWords
+  const data = await import('../../assets/stopWords.en.json').then(m => m.default) as { stopWords: string[] }
+  stopWords = new Set(data.stopWords.map(w => w.toLowerCase()))
+  return stopWords
+}
 
 const MARKER_CLASS = 'bonita-phrase-bold'
 
@@ -212,6 +222,59 @@ function expandNounPhrase(text: string, end: number): number {
 }
 
 /**
+ * Trims stop words from the left and right edges of a matched span.
+ * Stop words interior to a phrase (e.g. "of" in "National Institute of Health")
+ * are preserved — only edge tokens are removed.
+ *
+ * @param text  - Full text content of the node.
+ * @param start - Start index of the expanded span.
+ * @param end   - End index of the expanded span.
+ * @param stops - The loaded stop-word set.
+ * @returns Adjusted [start, end] indices with stop word edges trimmed.
+ */
+function trimStopWordEdges(
+  text: string,
+  start: number,
+  end: number,
+  stops: Set<string>,
+): [number, number] {
+  let s = start
+  let e = end
+
+  // Trim left edge — advance past leading stop word tokens
+  while (s < e) {
+    const slice = text.slice(s, e)
+    const leadingMatch = slice.match(/^([a-zA-Z'-]+)(\s*)/)
+    if (!leadingMatch) break
+    const originalToken = leadingMatch[1]
+
+    // Don't trim acronyms like WHO, DNA, USA
+    if (originalToken !== originalToken.toLowerCase()) break
+
+    const token = originalToken.toLowerCase()
+    if (!stops.has(token)) break
+    s += leadingMatch[0].length
+  }
+
+  // Trim right edge — retreat past trailing stop word tokens
+  while (e > s) {
+    const slice = text.slice(s, e)
+    const trailingMatch = slice.match(/(\s*)([a-zA-Z'-]+)$/)
+    if (!trailingMatch) break
+    const originalToken = trailingMatch[2]
+
+    // Don't trim acronyms like WHO, DNA, USA
+    if (originalToken !== originalToken.toLowerCase()) break
+
+    const token = originalToken.toLowerCase()
+    if (!stops.has(token)) break
+    e -= trailingMatch[0].length
+  }
+
+  return [s, e]
+}
+
+/**
  * Returns the nearest block-level ancestor of `el` (inclusive), or `el`
  * itself when it is already a block element.
  *
@@ -366,7 +429,7 @@ function isInCitation(text: string, phraseStart: number, phraseEnd: number): boo
  * @param textNode    - The text node to process.
  * @param seedPattern - Global regex built from the sorted bold targets.
  */
-function boldTextNode(textNode: Text, seedPattern: RegExp) {
+function boldTextNode(textNode: Text, seedPattern: RegExp, stops: Set<string>) {
   const text = textNode.textContent ?? ''
   const fragment = document.createDocumentFragment()
   let lastIndex = 0
@@ -386,9 +449,14 @@ function boldTextNode(textNode: Text, seedPattern: RegExp) {
     const seedStart = match.index
     const seedEnd = seedStart + match[0].length
 
-    const phraseStart = Math.max(lastIndex, expandLeft(text, seedStart))
-    const phraseEnd = expandNounPhrase(text, seedEnd)
-
+    const expandedStart = Math.max(lastIndex, expandLeft(text, seedStart))
+    const expandedEnd = expandNounPhrase(text, seedEnd)
+    const [phraseStart, phraseEnd] = trimStopWordEdges(text, expandedStart, expandedEnd, stops)
+  
+    if (phraseStart >= phraseEnd) {
+      seedPattern.lastIndex = phraseEnd
+      continue
+    }
     // Translate to block-relative offsets for citation detection.
     if (isInCitation(fullBlockText, nodeOffset + phraseStart, nodeOffset + phraseEnd)) {
       seedPattern.lastIndex = phraseEnd
@@ -457,37 +525,79 @@ function getContentRoot(): Element {
  *
  * @param boldTargets - List of keyword strings to bold, as returned by phraseExtractor.
  */
-export function applyPhraseBolding(boldTargets: string[]) {
+/**
+ * Walks each body paragraph independently, ranks the provided scored terms
+ * by their score within that paragraph, applies the percentage threshold,
+ * and bolds the top terms found in that paragraph's text nodes.
+ *
+ * Per-paragraph ranking means a term that dominates one paragraph gets bolded
+ * there even if it's globally mid-ranked, and a globally high-ranked term
+ * that barely appears in a paragraph may not be bolded there.
+ *
+ * Stop word edges are trimmed from every expanded span so that function words
+ * are never bolded at the boundary of a phrase.
+ *
+ * @param scored          - Full ranked term list from extractKeywords.
+ * @param thresholdPercent - Percentage (1–100) of each paragraph's matched
+ *                           terms to bold. 50 = top half per paragraph.
+ */
+export async function applyPhraseBolding(
+  scored: Array<{ term: string; score: number }>,
+  thresholdPercent: number,
+) {
   removePhraseBolding()
-  if (boldTargets.length === 0) return
+  if (scored.length === 0) return
 
-  const sorted = [...boldTargets].sort((a, b) => b.length - a.length)
-  const escaped = sorted.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const parts = sorted.map((t, i) => {
-    if (t.includes(' ')) return escaped[i]
-    // Lookahead includes ) and ( so words immediately adjacent to parentheses
-    // match correctly — e.g. "Methods)" and "(Figure" are not missed.
-    return `\\b${escaped[i]}(?:['\u2019]s)?(?=[\\s\\-.,;:!?()[\\]]|$)`
-  })
+  const stops = await getStopWords()
 
-  const pattern = new RegExp(`(${parts.join('|')})`, 'gi')
+  // Find all body paragraphs in the content root
   const root = getContentRoot()
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => {
-      if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
-      if (!/[A-Za-z]/.test(node.textContent ?? '')) return NodeFilter.FILTER_REJECT
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
+  const paragraphs = Array.from(root.querySelectorAll('p')).filter(
+    el => !shouldSkip(el)
+  )
 
-  const textNodes: Text[] = []
-  let current: Node | null
-  while ((current = walker.nextNode())) {
-    textNodes.push(current as Text)
-  }
+  for (const para of paragraphs) {
+    const paraText = (para.textContent ?? '').toLowerCase()
 
-  for (const textNode of textNodes) {
-    boldTextNode(textNode, pattern)
+    // Find which scored terms actually appear in this paragraph,
+    // preserving their global score for ranking
+    const present = scored.filter(({ term }) =>
+      new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(paraText)
+    )
+
+    if (present.length === 0) continue
+
+    // Sort by score descending and cut at threshold
+    const sorted = [...present].sort((a, b) => b.score - a.score)
+    const cutoff = Math.max(1, Math.ceil(sorted.length * (thresholdPercent / 100)))
+    const targets = sorted.slice(0, cutoff)
+
+    // Build pattern for this paragraph's terms only
+    const sortedByLength = [...targets].sort((a, b) => b.term.length - a.term.length)
+    const parts = sortedByLength.map(({ term }) => {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (term.includes(' ')) return escaped
+      return `\\b${escaped}(?:['\u2019]s)?(?=[\\s\\-.,;:!?()[\\]]|$)`
+    })
+
+    const pattern = new RegExp(`(${parts.join('|')})`, 'gi')
+
+    // Walk only this paragraph's text nodes
+    const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
+        if (!/[A-Za-z]/.test(node.textContent ?? '')) return NodeFilter.FILTER_REJECT
+        return NodeFilter.FILTER_ACCEPT
+      },
+    })
+
+    const textNodes: Text[] = []
+    let current: Node | null
+    while ((current = walker.nextNode())) textNodes.push(current as Text)
+
+    for (const textNode of textNodes) {
+      boldTextNode(textNode, pattern, stops)
+    }
   }
 }
 

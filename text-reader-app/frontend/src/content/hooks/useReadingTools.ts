@@ -58,7 +58,7 @@ import { applyWordUnderlines, removeWordUnderlines } from '../utils/wordUnderlin
 import { applyPOSHighlight, removePOSHighlight } from '../utils/posHighlighter'
 import { getParagraphs } from '../utils/analysisCache'
 import { scoreParagraphs } from '../utils/paragraphScorer'
-import { extractKeywords, getBodyParagraphs, getFreqMap } from '../utils/phraseExtractor'
+import { extractKeywords, getBodyParagraphs, getFreqMap, } from '../utils/phraseExtractor'
 import type { BonitaSettings } from '../../shared/settings'
 
 /** Removes every reading-tool DOM mutation in a single sweep. */
@@ -89,11 +89,11 @@ export function useReadingTools(): void {
   const nounColor = settings.posColors.nouns
   const adjColor  = settings.posColors.adjectives
 
-  const sentenceSplitting  = settings.sentenceSplitting
-  const keywordBolding     = settings.keywordBolding
-  const boldTargetCount    = settings.boldTargetCount ?? 7
-  const wordSimplification = settings.wordSimplification
-  const wordComplexity     = settings.wordComplexity
+  const sentenceSplitting    = settings.sentenceSplitting
+  const keywordBolding       = settings.keywordBolding
+  const boldThresholdPercent = settings.boldThresholdPercent ?? 7
+  const wordSimplification   = settings.wordSimplification
+  const wordComplexity       = settings.wordComplexity
 
   /**
    * Always holds the latest settings so the deferred callback reads fresh
@@ -127,8 +127,8 @@ export function useReadingTools(): void {
 
       // ── 4. Phrase bolding (async) ────────────────────────────────────────
       if (s.keywordBolding) {
-        extractKeywords(getBodyParagraphs(), s.boldTargetCount ?? 7).then(targets => {
-          if (!cancelled) applyPhraseBolding(targets)
+        extractKeywords(getBodyParagraphs()).then(scored => {
+          if (!cancelled) applyPhraseBolding(scored, s.boldThresholdPercent ?? 50)
         })
       }
 
@@ -149,7 +149,7 @@ export function useReadingTools(): void {
     sentenceSplitting,
     verbOn, nounOn, adjOn,
     verbColor, nounColor, adjColor,
-    keywordBolding, boldTargetCount,
+    keywordBolding, boldThresholdPercent,
     wordSimplification, wordComplexity,
   ])
 }

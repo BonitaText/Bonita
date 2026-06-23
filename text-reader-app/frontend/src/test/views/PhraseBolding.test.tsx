@@ -12,14 +12,14 @@ const mockedUseSettings = vi.mocked(useSettings)
 
 function stubSettings(overrides: {
   keywordBolding?: boolean
-  boldTargetCount?: number
+  boldThresholdPercent?: number
   boldColor?: string
 } = {}) {
   const updateSetting = vi.fn()
   mockedUseSettings.mockReturnValue({
     settings: {
       keywordBolding: overrides.keywordBolding ?? false,
-      boldTargetCount: overrides.boldTargetCount,
+      boldThresholdPercent: overrides.boldThresholdPercent,
       boldColor: overrides.boldColor,
     },
     updateSetting,
@@ -93,16 +93,16 @@ describe('PhraseBolding', () => {
     stubSettings()
     render(<PhraseBolding open={true} onOpen={vi.fn()} />)
 
-    expect(screen.getByText('7')).toBeInTheDocument()
+    expect(screen.getByText('7%')).toBeInTheDocument()
     const colorInput = document.querySelector('input[type="color"]') as HTMLInputElement
     expect(colorInput.value).toBe('#3e236b')
   })
 
-  it('caps the slider max at 10 when the document has no <p> elements', () => {
+  it('caps the slider max at 100 when the document has no <p> elements', () => {
     stubSettings()
     render(<PhraseBolding open={true} onOpen={vi.fn()} />)
     const slider = document.querySelector('input[type="range"]') as HTMLInputElement
-    expect(slider.max).toBe('10')
+    expect(slider.max).toBe('100')
   })
 
   it('scales the slider max with the number of <p> elements in the document', () => {
@@ -113,42 +113,20 @@ describe('PhraseBolding', () => {
       stubSettings()
       render(<PhraseBolding open={true} onOpen={vi.fn()} />)
       const slider = document.querySelector('input[type="range"]') as HTMLInputElement
-      expect(slider.max).toBe(String(10 + 20 * 2)) // 50
+      expect(slider.max).toBe('100')
     } finally {
       paragraphs.forEach(p => p.remove())
     }
   })
 
-  it('clamps the slider max at 200 regardless of how many <p> elements exist', () => {
-    const paragraphs = Array.from({ length: 200 }, () => document.createElement('p'))
-    paragraphs.forEach(p => document.body.appendChild(p))
 
-    try {
-      stubSettings()
-      render(<PhraseBolding open={true} onOpen={vi.fn()} />)
-      const slider = document.querySelector('input[type="range"]') as HTMLInputElement
-      expect(slider.max).toBe('200')
-    } finally {
-      paragraphs.forEach(p => p.remove())
-    }
-  })
-
-  it('clamps the slider value to the effective max without clamping the displayed count', () => {
-    stubSettings({ boldTargetCount: 50 }) // effectiveMax defaults to 10 with no <p>s
-    render(<PhraseBolding open={true} onOpen={vi.fn()} />)
-
-    const slider = document.querySelector('input[type="range"]') as HTMLInputElement
-    expect(slider.value).toBe('10')
-    expect(screen.getByText('50')).toBeInTheDocument() // readout shows the raw, uncapped count
-  })
-
-  it('updates boldTargetCount when the slider changes', () => {
+  it('updates boldThresholdPercent when the slider changes', () => {
     const updateSetting = stubSettings()
     render(<PhraseBolding open={true} onOpen={vi.fn()} />)
     const slider = document.querySelector('input[type="range"]') as HTMLInputElement
 
     fireEvent.change(slider, { target: { value: '5' } })
-    expect(updateSetting).toHaveBeenCalledWith('boldTargetCount', 5)
+    expect(updateSetting).toHaveBeenCalledWith('boldThresholdPercent', 5)
   })
 
   it('updates boldColor when the colour picker changes', () => {

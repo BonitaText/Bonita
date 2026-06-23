@@ -29,7 +29,7 @@ interface PhraseBoldingProps {
  *   simultaneously opens/closes the configuration popup via `onOpen`.
  * - The button renders with the `active` class while bolding is enabled.
  * - The popup exposes:
- *   - A range slider for `settings.boldTargetCount` (how many keywords to bold).
+ *   - A range slider for `settings.boldThresholdPercent` (how many keywords to bold).
  *     The slider's max is clamped to `min(10 + paragraphCount * 2, 200)` so
  *     the count stays proportional to page length.
  *   - A colour picker for `settings.boldColor`, which is also mirrored onto
@@ -43,28 +43,12 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
   const enabled = settings.keywordBolding
   
   /** Current target keyword count, defaulting to 7. */
-  const count = settings.boldTargetCount ?? 7
+  const count = settings.boldThresholdPercent ?? 7
   
   /** Current bold colour as a hex string, defaulting to deep purple. */
   const boldColor = settings.boldColor ?? '#3e236b'
   
-  /** Hard upper bound on the keyword count slider. */
-  const GLOBAL_MAX = 200
 
-  /**
-   * Dynamic slider max — scales with the number of <p> elements on the page
-   * so the control stays meaningful on both short and long articles.
-   * Always clamped to GLOBAL_MAX.
-   */
-  const paragraphCount = document.querySelectorAll('p').length
-  const dynamicMax = Math.min(10 + paragraphCount * 2, GLOBAL_MAX)
-  const effectiveMax = Math.min(dynamicMax, GLOBAL_MAX)
-  
-  /**
-   * Ensures the displayed count never exceeds the current effective max,
-   * e.g. if the user navigates to a shorter page after setting a high count.
-   */
-  const clampedCount = Math.min(count, effectiveMax)
 
   // Inject the CSS variable onto :root so phraseBolder.ts picks it up
   document.documentElement.style.setProperty('--bonita-bold-color', boldColor)
@@ -101,7 +85,7 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
             <span>Keywords</span>
             {/* Live count readout next to the label */}
             <span style={{ color: 'var(--bonita-purple-dark)', fontSize: 13 }}>
-              {count}
+              {count}%
             </span>
           </div>
 
@@ -109,11 +93,11 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
           <div style={{ padding: '2px 10px 8px' }}>
             <input
               type="range"
-              min={3}
-              max={Math.floor(effectiveMax)}
+              min={1}
+              max={100}
               step={1}
-              value={clampedCount}
-              onChange={e => updateSetting('boldTargetCount', Number(e.target.value))}
+              value={50}
+              onChange={e => updateSetting('boldThresholdPercent', Number(e.target.value))}
               style={{
                 width: '100%',
                 accentColor: 'var(--bonita-purple)',

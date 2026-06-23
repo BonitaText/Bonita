@@ -73,6 +73,8 @@ export interface BonitaSettings {
    */
   boldTargetCount: number
 
+  boldThresholdPercent: number
+
   /** CSS colour string applied to bolded keyword spans. */
   boldColor: string
 
@@ -154,6 +156,7 @@ export const defaultSettings: BonitaSettings = {
   bulletPoints: false,
   keywordBolding: false,
   boldTargetCount: 7,
+  boldThresholdPercent: 50,
   boldColor: '#3e236b',
   posEnabled: {
     verbs: false,

@@ -22,6 +22,7 @@
 
 import nlp from 'compromise'
 import { extractSciencePatternTerms, extractItalicScienceTerms } from './sciencePatterns'
+import { scoreComplexity } from './wordSimplifier'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,12 +52,6 @@ interface StopWordList {
   sentenceStarters: string[]
 }
 
-// ---------------------------------------------------------------------------
-// Minimum score threshold — terms below this are discarded regardless of rank.
-// Prevents garbage low-signal words from ever reaching boldTargets.
-// ---------------------------------------------------------------------------
-
-const MIN_SCORE = 1.2
 
 // ---------------------------------------------------------------------------
 // Asset loading — all cached after first call
@@ -78,10 +73,6 @@ async function getMeshMap(): Promise<Map<string, number>> {
 /** Loads and caches the English word-frequency rank map (word → rank). */
 export async function getFreqMap(): Promise<Map<string, number>> {
   if (freqMap) return freqMap
-  const mod = await import('../../assets/englishFreq.json')
-  console.log('mod', mod)
-  console.log('mod.default', mod.default)
-  console.log('is array?', Array.isArray(mod.default))
   const raw = (await import('../../assets/englishFreq.json').then(m => m.default)) as ReadonlyArray<readonly [string, number]>
   freqMap = new Map(raw.map(([word], index) => [word.toLowerCase(), index]))
   return freqMap
@@ -321,7 +312,7 @@ export function extractAcronyms(paragraphs: string[], stops: Set<string>): strin
     }
   }
   return [...counts.entries()]
-    .filter(([, n]) => n > 1)
+    .filter(([, n]) => n >= 1)
     .sort((a, b) => b[1] - a[1])
     .map(([token]) => token.toLowerCase())
 }
@@ -349,7 +340,7 @@ export function extractAcronyms(paragraphs: string[], stops: Set<string>): strin
  * @param word - Lowercase term to look up.
  * @param freq - The English frequency rank map (word → rank number).
  */
-export function rarityBonus(word: string, freq: Map<string, number>): number {
+function rarityBonus(word: string, freq: Map<string, number>): number {
   const rank = freq.get(word.toLowerCase())
   if (rank === undefined) return 2.0
   if (rank <= 1000)  return 1.0
@@ -404,19 +395,27 @@ export function scoreTerm(
   // MeSH branch weight (1.0 if not in MeSH)
   const meshWeight = mesh.get(key) ?? 1.0
 
-  // Rarity — rare/technical words score higher
-  const rarity = rarityBonus(key, freq)
-
   // Science pattern bonus
-  const patternBonus = scienceTerms.has(key) ? 1.5 : 1.0
+  const patternBonus = scienceTerms.has(key) ? 2 : 1.0
 
   // NER bonus
-  const nerBonus = nerTerms.has(key) ? 1.2 : 1.0
+  const nerBonus = nerTerms.has(key) ? 2 : 1.0
 
   // Acronym bonus
-  const acronymBonus = acronyms.has(key) ? 1.3 : 1.0
+  const acronymBonus = acronyms.has(key) ? 2 : 1.0
 
-  return freqScore * meshWeight * rarity * patternBonus * nerBonus * acronymBonus
+  // Specialist terms don't need complexity scoring
+  const isSpecialist =
+    meshWeight > 1.0 ||
+    patternBonus > 1.0 ||
+    nerBonus > 1.0 ||
+    acronymBonus > 1.0
+
+  const complexityScore = isSpecialist
+    ? rarityBonus(key, freq)          
+    : Math.max(scoreComplexity(key, freq), 1.0) // floor at 1.0 so freq still ranks them
+
+  return freqScore * meshWeight * complexityScore * patternBonus * nerBonus * acronymBonus
 }
 
 // ---------------------------------------------------------------------------
@@ -435,30 +434,22 @@ export function scoreTerm(
  * 5. **Content word frequency** — nouns and adjectives via compromise, with
  *    stop-word and false-capital filtering.
  *
- * All candidate terms are scored with {@link scoreTerm} and only those
- * at or above {@link MIN_SCORE} are returned.
- *
  * The returned list length is the minimum of `maxTerms`, a length derived
  * from paragraph count (`10 + paragraphs.length × 2`, capped at 200), and
  * the hard global cap of 200.
  *
  * @param paragraphs - Body paragraph strings (from {@link getBodyParagraphs}).
- * @param maxTerms   - Caller-requested upper bound on returned keywords (default 100).
  * @returns Lowercase keyword strings sorted by descending score.
  */
 export async function extractKeywords(
   paragraphs: string[],
-  maxTerms = 100,
-): Promise<string[]> {
-  const GLOBAL_MAX = 200
-  const dynamicMax = Math.min(10 + paragraphs.length * 2, GLOBAL_MAX)
-  maxTerms = Math.min(maxTerms, dynamicMax, GLOBAL_MAX)
+): Promise<Array<{term: string, score: number}>> {
 
   // Load all assets in parallel (cached after first call)
-  const [mesh, freq, stops] = await Promise.all([
+  const [mesh, freq, { stopSet: stops, sentenceStarterSet: sentenceStarters }] = await Promise.all([
     getMeshMap(),
     getFreqMap(),
-    getStopSets().then(s => s.stopSet),
+    getStopSets(),
   ])
 
   const fullText = paragraphs.join(' ')
@@ -498,16 +489,14 @@ export async function extractKeywords(
   const meshHits = new Set<string>()
   for (const raw of fullText.split(/\s+/)) {
     const word = raw.replace(/[^a-zA-Z'-]/g, '').toLowerCase()
-    if (word.length >= 3 && mesh.has(word)) meshHits.add(word)
+    if (word.length >= 2 && mesh.has(word)) meshHits.add(word)
   }
 
   // ── Pass 5: Content word frequency (nouns + adjectives via compromise) ───
   const pageFreqMap = new Map<string, number>()
 
   for (const text of paragraphs) {
-    const doc = nlp(text)
-    const contentWords = doc.match('#Noun|#Adjective').out('array') as string[]
-    for (const raw of contentWords) {
+    for (const raw of text.split(/\s+/)) {
       // ── Dotted abbreviation guard — must run BEFORE the dot-stripping replace ──
       const dottedCheck = raw.replace(/^[^A-Za-z.]+|[^A-Za-z.]+$/g, '')
       if (isDottedAbbreviation(dottedCheck)) {
@@ -520,6 +509,7 @@ export async function extractKeywords(
 
       const word = raw.replace(/[^a-zA-Z'-]/g, '').toLowerCase()
       if (word.length >= 3 && !isBlocked(word, stops)) {
+        if (sentenceStarters.has(word)) continue
         if (isFalseCapital(raw, text)) continue
         pageFreqMap.set(word, (pageFreqMap.get(word) ?? 0) + 1)
       }
@@ -536,6 +526,7 @@ export async function extractKeywords(
       const matches = fullText.match(new RegExp(`\\b${escaped}\\b`, 'gi'))
       pageFreqMap.set(term, matches?.length ?? 1)
     }
+  
   }
 
   // ── Scoring & ranking ────────────────────────────────────────────────────
@@ -550,10 +541,9 @@ export async function extractKeywords(
       term,
       score: scoreTerm(term, pageFreq, mesh, freq, scienceTerms, nerTerms, acronyms),
     }))
-    .filter(({ score }) => score >= MIN_SCORE)
     .sort((a, b) => b.score - a.score)
 
-  return scored.slice(0, maxTerms).map(s => s.term)
+  return scored.slice(0)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,12 +1,8 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (trailing dot) is the target 1`] = `1`;
+exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (trailing dot) is the target 1`] = `0`;
 
-exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (trailing dot) is the target 2`] = `
-[
-  "U.S.",
-]
-`;
+exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens when "u.s." (trailing dot) is the target 2`] = `[]`;
 
 exports[`applyPhraseBolding — dotted abbreviations (U.S. bug) > [bug] documents what happens with "u.s.a" mid-sentence 1`] = `1`;
 
