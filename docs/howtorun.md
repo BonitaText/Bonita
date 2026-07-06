@@ -1,10 +1,12 @@
-### Requirements\
+### Requirements
 - Node.js 20+
 - npm
 
-### Clone Repo\
+### Clone Repo
 ```
 git clone https://github.com/BonitaText/Bonita.git
+
+
 ```
 
 ### Setup
