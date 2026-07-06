@@ -6,7 +6,6 @@
 ```
 git clone https://github.com/BonitaText/Bonita.git
 
-
 ```
 
 ### Setup
