@@ -3,7 +3,9 @@
 - npm
 
 ### Clone Repo\
-```git clone https://github.com/BonitaText/Bonita.git```
+```
+git clone https://github.com/BonitaText/Bonita.git
+```
 
 ### Setup
 ```
