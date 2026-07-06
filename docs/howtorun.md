@@ -11,9 +11,9 @@ git clone https://github.com/BonitaText/Bonita.git
 cd text-reader-app/frontend
 npm install
 ```
-### Run dev server
+### Run dev server - ALWAYS RUN FOR ACCESS TO SETTINGS POPUP OR REALTIME CODE UPDATES
 ```
-npm run dev (this allows
+npm run dev 
 ```
 ### Build extension
 ```
