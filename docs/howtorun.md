@@ -5,9 +5,7 @@
 ### Clone Repo
 ```
 git clone https://github.com/BonitaText/Bonita.git
-
 ```
-
 ### Setup
 ```
 cd text-reader-app/frontend
