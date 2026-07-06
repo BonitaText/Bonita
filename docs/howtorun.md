@@ -24,4 +24,4 @@ npm run build
 1. Open Chrome → chrome://extensions
 2. Enable Developer Mode
 3. Click "Load unpacked"
-4. Select the /dist folder
+4. Select the /dist folder located in text-reader-app/frontend/
