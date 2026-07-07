@@ -14,3 +14,4 @@
 - Add the ability to remove distracting page elements
 - Complete annotation tools, like highlighting note taking etc?
 - Integration with notion and obsidian.
+- Math formula dumbing down
