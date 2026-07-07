@@ -8,7 +8,8 @@
   ```
   https://accelareader.com
   ```
-  But this would be insanely novel in the extension, especially because the phrase extractor already contains a function to detect citations and I think thats the brunt of junk we will have to deal with within paragraphs.
+  - But this would be insanely novel in the extension, especially because the phrase extractor already contains a function to detect citations and I think thats the brunt of junk we will have to deal with within paragraphs.
+  - We can also record and display average session speed as a way of making users feel challenged (for adhd folks)
 - Add the ability to remove distracting page elements
 - Complete annotation tools, like highlighting note taking etc?
 - Integration with notion and obsidian.
