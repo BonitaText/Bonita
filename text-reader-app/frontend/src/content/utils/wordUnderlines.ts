@@ -17,9 +17,13 @@
  * viewport in content-script environments.
  *
  * ## Capitalised words
- * Any token whose first character is uppercase is never underlined — catches
- * proper nouns, sentence-initial capitals, and acronyms without any
- * morphology heuristics.
+ * A capitalised token is underlined as long as it is complex enough and is not
+ * a **single-word** proper noun (person, place, or organisation) detected by
+ * compromise NER. Multi-word entity names are never tokenised, so complex
+ * vocabulary embedded in one — e.g. "Thoracic" inside "Society of Thoracic
+ * Surgeons" — still gets through. Any true proper noun that slips past is
+ * self-healed on hover: the dictionary lookup returns no content and the
+ * underline is removed.
  *
  * ## Complexity tiers
  * Each qualifying word is assigned one of two display tiers:
@@ -29,6 +33,7 @@
  *     solid thinner underline, up to 2 synonyms or a single definition.
  */
 
+import nlp from 'compromise'
 import { fetchWordInfo, WordInfo, PosEntry } from './synonymCache'
 import {
   scoreComplexity,
@@ -50,6 +55,30 @@ const BLOCKED_TAGS = new Set([
 
 /** Matches word tokens including hyphens and apostrophes. Reset `lastIndex` before each use. */
 const WORD_RE = /\b[A-Za-z][A-Za-z'-]*\b/g
+
+/** Maximum number of dictionary look-ups fired at once during pre-fetch. */
+const PREFETCH_CONCURRENCY = 8
+
+/**
+ * Runs `task` over every item in `items` with at most `limit` tasks in flight
+ * at a time, resolving once all have completed. Used to pre-fetch dictionary
+ * content for many candidate words without firing one request per word all at
+ * once (which would hammer the dictionary APIs and risk rate limiting).
+ */
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      await task(items[index])
+    }
+  })
+  await Promise.all(workers)
+}
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
@@ -317,9 +346,9 @@ function attachHoverHandlers(
  * @returns A set of unique lowercase word strings found in visible text nodes.
  */
 function collectPageVocabulary(root: Element): Set<string> {
-  const vocab = new Set<string>()
+  const vocab = new Set<string>() 
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
+    acceptNode(node) {  
       if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
     },
@@ -330,13 +359,46 @@ function collectPageVocabulary(root: Element): Set<string> {
     let match: RegExpExecArray | null
     WORD_RE.lastIndex = 0
     while ((match = WORD_RE.exec(text)) !== null) {
-      const word = match[0]
-      if (!isCapitalised(word)) {
-        vocab.add(word.toLowerCase())
-      }
+      vocab.add(match[0].toLowerCase())
     }
   }
   return vocab
+}
+
+/**
+ * Uses compromise NER to collect the lowercased forms of every **single-word**
+ * proper noun on the page — people, places, and organisations (e.g. "Rose",
+ * "Copenhagen", "Google").
+ *
+ * Multi-word entities are deliberately skipped rather than tokenised, so a
+ * genuine vocabulary word embedded in one (e.g. "Thoracic" inside "Society of
+ * Thoracic Surgeons") is never dragged out with it and stays eligible for
+ * underlining. Any true proper noun that still slips through self-heals on
+ * hover, when the dictionary lookup returns no content and the underline is
+ * removed.
+ *
+ * @param root - The content root returned by {@link getContentRoot}.
+ * @returns A set of lowercase proper-noun words to exclude from underlining.
+ */
+function collectProperNouns(root: Element): Set<string> {
+  const set = new Set<string>()
+  try {
+    const doc = nlp(root.textContent ?? '')
+    const entities = [
+      ...(doc.people().out('array') as string[]),
+      ...(doc.places().out('array') as string[]),
+      ...(doc.organizations().out('array') as string[]),
+    ]
+    for (const ent of entities) {
+      const trimmed = ent.trim()
+      if (/\s/.test(trimmed)) continue // skip multi-word entities
+      const clean = trimmed.toLowerCase().replace(/[^a-z'-]/g, '')
+      if (clean.length >= 2) set.add(clean)
+    }
+  } catch {
+    // NER is best-effort — fall back to no proper-noun exclusions.
+  }
+  return set
 }
 
 // ─── Capitalisation filter ────────────────────────────────────────────────────
@@ -361,17 +423,33 @@ function isCapitalised(word: string): boolean {
  * The `freq` map is passed into every hover handler so synonym scoring uses
  * the same data as the underline decision.
  *
- * @param freq  - English frequency rank map from `englishFreq.json`.
- * @param level - Complexity tier to test against. Defaults to `'medium'`.
+ * ## Definable-only underlining
+ * Before wrapping anything, dictionary content is pre-fetched (with bounded
+ * concurrency) for every candidate word, and only words that come back with a
+ * synonym or definition are underlined. This prevents the jarring case where a
+ * word is underlined optimistically and then loses its underline on hover
+ * because the lookup returned nothing. The pre-fetch also warms
+ * {@link fetchWordInfo}'s cache, so the subsequent hover renders instantly.
+ *
+ * Because the pre-fetch is network-bound, the function is async and underlines
+ * appear a moment after the feature is toggled on.
+ *
+ * @param freq        - English frequency rank map from `englishFreq.json`.
+ * @param level       - Complexity tier to test against. Defaults to `'medium'`.
+ * @param isCancelled - Optional predicate polled after the async pre-fetch; when
+ *   it returns `true` the DOM-wrapping pass is skipped, so a settings change or
+ *   unmount mid-fetch never applies stale underlines.
  */
-export function applyWordUnderlines(
+export async function applyWordUnderlines(
   freq: Map<string, number>,
   level: ComplexityLevel = 'medium',
-): void {
+  isCancelled: () => boolean = () => false,
+): Promise<void> {
   removeWordUnderlines()
   const root = getContentRoot()
 
   const vocab = collectPageVocabulary(root)
+  const properNouns = collectProperNouns(root)
 
   const wordTiers = new Map<string, 'full' | 'lite'>()
   for (const lower of vocab) {
@@ -382,6 +460,23 @@ export function applyWordUnderlines(
   }
 
   if (wordTiers.size === 0) return
+
+  // Pre-fetch dictionary content for every candidate and keep only the words we
+  // can actually define, so nothing gets underlined that would lose its
+  // underline on hover. Bounded concurrency avoids firing hundreds of requests
+  // at once; fetchWordInfo caches each result for the later hover.
+  const definable = new Set<string>()
+  await mapLimit([...wordTiers.keys()], PREFETCH_CONCURRENCY, async word => {
+    try {
+      const info = await fetchWordInfo(word, freq)
+      if (info.hasContent) definable.add(word)
+    } catch {
+      // Treat a failed lookup as undefinable — simply don't underline it.
+    }
+  })
+
+  // A settings change or unmount may have fired while we were fetching.
+  if (isCancelled()) return
 
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
@@ -405,10 +500,19 @@ export function applyWordUnderlines(
 
     while ((match = WORD_RE.exec(text)) !== null) {
       const word = match[0]
-      if (isCapitalised(word)) continue
       const lower = word.toLowerCase()
+      // A capitalised token is skipped only when it is a single-word proper
+      // noun (person, place, or organisation) detected by NER. Multi-word
+      // entities are never excluded, so complex vocabulary embedded in one
+      // (e.g. "Thoracic" in "Society of Thoracic Surgeons") still gets through;
+      // any real proper noun that slips past self-heals on hover when the
+      // dictionary lookup returns nothing.
+      if (isCapitalised(word) && properNouns.has(lower)) continue
       const tier = wordTiers.get(lower)
       if (!tier) continue
+      // Only underline words we actually found dictionary content for, so an
+      // underline never disappears on hover for lack of a definition.
+      if (!definable.has(lower)) continue
 
       if (match.index > lastIndex) {
         fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))

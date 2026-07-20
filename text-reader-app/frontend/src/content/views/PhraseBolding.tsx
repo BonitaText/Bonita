@@ -96,7 +96,7 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
               min={1}
               max={100}
               step={1}
-              value={50}
+              value={count}
               onChange={e => updateSetting('boldThresholdPercent', Number(e.target.value))}
               style={{
                 width: '100%',

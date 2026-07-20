@@ -50,7 +50,7 @@
  * applied after unmount or a settings change that fires the next effect cycle.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSettings } from './useSettings'
 import { applySentenceSplit, removeSentenceSplit } from '../utils/sentenceSplitter'
 import { applyPhraseBolding, removePhraseBolding } from '../utils/phraseBolder'
@@ -74,10 +74,16 @@ function removeAll(): void {
  * sentence splitting (which restructures the DOM) always runs before the
  * annotation passes that depend on a stable DOM.
  *
- * Returns `void` — all side-effects and cleanup are managed internally.
+ * Returns a `busy` flag that is `true` while any asynchronous pass (phrase
+ * bolding's keyword extraction or word simplification's dictionary pre-fetch)
+ * is still running, so the UI can show a loading indicator. All other
+ * side-effects and cleanup are managed internally.
  */
-export function useReadingTools(): void {
+export function useReadingTools(): boolean {
   const { settings } = useSettings()
+
+  /** `true` while an async analysis pass is in flight; drives the loading sign. */
+  const [busy, setBusy] = useState(false)
 
   // Extract primitives to avoid infinite loops from new object references.
   // useSettings may return a fresh settings object on every render; listing
@@ -125,17 +131,31 @@ export function useReadingTools(): void {
         applyPOSHighlight(s.posColors, s.posEnabled)
       }
 
-      // ── 4. Phrase bolding (async) ────────────────────────────────────────
+      // ── 4-5. Async passes (phrase bolding + word underlines) ─────────────
+      // Both are network / CPU bound (dictionary loads and look-ups), so track
+      // them together and surface a loading sign until every pass settles.
+      const pending: Promise<unknown>[] = []
+
       if (s.keywordBolding) {
-        extractKeywords(getBodyParagraphs()).then(scored => {
-          if (!cancelled) applyPhraseBolding(scored, s.boldThresholdPercent ?? 50)
-        })
+        pending.push(
+          extractKeywords(getBodyParagraphs()).then(scored => {
+            if (!cancelled) return applyPhraseBolding(scored, s.boldThresholdPercent ?? 50)
+          }),
+        )
       }
 
-      // ── 5. Word underlines (async) ───────────────────────────────────────
       if (s.wordSimplification) {
-        getFreqMap().then(freq => {
-          if (!cancelled) applyWordUnderlines(freq, s.wordComplexity)
+        pending.push(
+          getFreqMap().then(freq => {
+            if (!cancelled) return applyWordUnderlines(freq, s.wordComplexity, () => cancelled)
+          }),
+        )
+      }
+
+      if (pending.length > 0) {
+        setBusy(true)
+        Promise.allSettled(pending).then(() => {
+          if (!cancelled) setBusy(false)
         })
       }
     }, 0)
@@ -144,6 +164,7 @@ export function useReadingTools(): void {
       cancelled = true
       clearTimeout(timerId)
       removeAll()
+      setBusy(false)
     }
   }, [
     sentenceSplitting,
@@ -152,4 +173,6 @@ export function useReadingTools(): void {
     keywordBolding, boldThresholdPercent,
     wordSimplification, wordComplexity,
   ])
+
+  return busy
 }
