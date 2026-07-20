@@ -14,14 +14,11 @@ npm install
 ### Run dev server - ALWAYS RUN FOR ACCESS TO SETTINGS POPUP OR REALTIME CODE UPDATES
 ```
 npm run dev 
-```
-### Build extension
-```
-npm run build
+
 ```
 ### Load Extension (Development Mode)
 
 1. Open Chrome → chrome://extensions
 2. Enable Developer Mode
 3. Click "Load unpacked"
-4. Select the /dist folder located in text-reader-app/frontend/
+4. Select the /dist folder located in text-reader-app/frontend/dist
