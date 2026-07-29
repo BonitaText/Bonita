@@ -33,7 +33,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/ui": "^4.1.9",
-    "adm-zip": "^0.5.17",
+    "adm-zip": "^0.6.0",
     "jsdom": "^29.1.1",
     "typedoc": "^0.28.19",
     "typescript": "~5.9.3",
