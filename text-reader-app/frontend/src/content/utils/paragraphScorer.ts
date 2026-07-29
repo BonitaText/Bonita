@@ -23,7 +23,7 @@ import type { ParagraphScore } from './analysisCache'
 export type { ParagraphScore }
 
 // ---------------------------------------------------------------------------
-// Syllable counter — mirrors the Python implementation in nlp.py exactly
+// Syllable counter
 // ---------------------------------------------------------------------------
 
 const STRIP_PUNCT_RE = /[.,!?()]/g
@@ -46,7 +46,7 @@ export function countSyllables(word: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// Sentence splitter — compromise replaces the old abbreviation regex
+// Sentence splitter 
 // ---------------------------------------------------------------------------
 
 /**
@@ -94,7 +94,7 @@ function fleschScore(words: string[], sentences: string[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// Main scoring function — mirrors paragraph_complexity_from_doc()
+// Main scoring function 
 // ---------------------------------------------------------------------------
 
 interface ScoredParagraph extends ParagraphScore {
