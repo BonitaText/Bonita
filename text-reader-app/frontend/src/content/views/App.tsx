@@ -449,6 +449,38 @@ const styles = `
     background: rgba(111, 79, 216, 0.15);
     flex-shrink: 0;
   }
+
+  /* ── Loading sign (shown while async passes run) ── */
+  .bonita-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0 2px;
+    color: var(--bonita-purple-dark);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .bonita-loading-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(111, 79, 216, 0.25);
+    border-top-color: var(--bonita-purple);
+    animation: bonita-spin 0.7s linear infinite;
+  }
+
+  @keyframes bonita-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bonita-loading-spinner { animation-duration: 1.8s; }
+  }
 `
 
 // ─── Component ────────────────────────────────────────────────────────────────
