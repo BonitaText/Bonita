@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "worker:dev": "wrangler dev --config workers/report-relay/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config workers/report-relay/wrangler.toml"
   },
   "dependencies": {
     "@fontsource/opendyslexic": "^5.2.5",
@@ -21,6 +23,7 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
     "@crxjs/vite-plugin": "^2.7.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -39,9 +42,7 @@
     "typescript": "~5.9.3",
     "vite": "^6.0.0",
     "vite-plugin-zip-pack": "^1.2.4",
-    "vitest": "^4.1.9"
-  },
-  "overrides": {
-    "vite": "^6.0.0"
+    "vitest": "^4.1.9",
+    "wrangler": "^4.0.0"
   }
 }

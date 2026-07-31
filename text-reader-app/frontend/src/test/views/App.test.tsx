@@ -324,6 +324,7 @@ describe('App — per-tool visibility via settings.enabledTools', () => {
         pos: false,
         lineFocus: true,
         tts: true,
+        font: true,
       },
     })
     render(<App />)

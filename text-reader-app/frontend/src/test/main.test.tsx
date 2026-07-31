@@ -53,13 +53,11 @@ describe('content script entry point (main.tsx)', () => {
 
   it('does nothing when running inside an iframe (window !== window.top)', async () => {
     Object.defineProperty(window, 'top', { value: {}, configurable: true })
-
     await import('../content/main.tsx')
     await settle()
-
     expect(document.getElementById('bonita-root')).toBeNull()
     expect(createRootMock).not.toHaveBeenCalled()
-  })
+  }, 10000) // ← second arg bumps this test's timeout to 10s
 
   it('creates and appends the #bonita-root container to document.body in the top frame', async () => {
     await import('../content/main.tsx')

@@ -3,8 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import App from '../../popup/App'
 import { defaultSettings, getSettings, saveSettings, type BonitaSettings } from '@/shared/settings'
 
-// Keep defaultSettings (and any other real exports) intact; only swap out the
-// storage I/O functions for mocks so tests control what "loads" on mount.
 vi.mock('@/shared/settings', async () => {
   const actual = await vi.importActual<typeof import('@/shared/settings')>('@/shared/settings')
   return {
@@ -40,7 +38,7 @@ describe('popup App — initial render', () => {
     await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
   })
 
-  it('loads settings on mount and reflects the active tool count', async () => {
+  it('loads settings on mount and reflects each tool checkbox state', async () => {
     mockedGetSettings.mockResolvedValue(
       settingsWith({
         enabledTools: {
@@ -50,76 +48,59 @@ describe('popup App — initial render', () => {
           pos: true,
           lineFocus: false,
           tts: false,
+          font: false,
         },
       }),
     )
     render(<App />)
 
-    expect(await screen.findByText('2 tools active')).toBeInTheDocument()
-  })
-
-  it('shows "Preview" (disabled state) by default', async () => {
-    render(<App />)
-    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: /Preview/ })).not.toHaveClass('is-on')
+    expect(await screen.findByRole('checkbox', { name: /Chunk text/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Guide skimming/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Grammar color/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Font picker/i })).not.toBeChecked()
   })
 })
 
-describe('popup App — enabled / preview toggle', () => {
-  it('toggles to "Ready" on click and persists the change', async () => {
-    render(<App />)
-    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
-
-    fireEvent.click(screen.getByRole('button', { name: /Preview/ }))
-
-    expect(screen.getByRole('button', { name: /Ready/ })).toHaveClass('is-on')
-    expect(mockedSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }))
-  })
-
-  it('toggles back to "Preview" on a second click', async () => {
-    render(<App />)
-    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
-
-    fireEvent.click(screen.getByRole('button', { name: /Preview/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Ready/ }))
-
-    expect(screen.getByRole('button', { name: /Preview/ })).not.toHaveClass('is-on')
-    expect(mockedSaveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }))
-  })
-})
-
-describe('popup App — calm reading preset', () => {
-  it('enables every tool and persists enabledTools with all flags true', async () => {
+describe('popup App — structure-first preset', () => {
+  it('enables exactly lineFocus, keywordBolding, sentenceSplitting, and font — disabling every other tool', async () => {
     mockedGetSettings.mockResolvedValue(
       settingsWith({
         enabledTools: {
           sentenceSplitting: false,
           keywordBolding: false,
-          wordSimplification: false,
-          pos: false,
+          wordSimplification: true,
+          pos: true,
           lineFocus: false,
-          tts: false,
+          tts: true,
+          font: false,
         },
       }),
     )
     render(<App />)
-    expect(await screen.findByText('0 tools active')).toBeInTheDocument()
+    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
 
-    fireEvent.click(screen.getByRole('button', { name: /Apply calm reading preset/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Enable the structure-first toolset/ }))
 
-    expect(await screen.findByText('6 tools active')).toBeInTheDocument()
     expect(mockedSaveSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         enabledTools: {
           sentenceSplitting: true,
           keywordBolding: true,
-          wordSimplification: true,
-          pos: true,
+          wordSimplification: false,
+          pos: false,
           lineFocus: true,
-          tts: true,
+          tts: false,
+          font: true,
         },
       }),
     )
+
+    expect(await screen.findByRole('checkbox', { name: /Chunk text/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Line focus/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Font picker/i })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Grammar color/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Read aloud/i })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Word help/i })).not.toBeChecked()
   })
 })
 
@@ -134,13 +115,13 @@ describe('popup App — per-tool feature cards', () => {
           pos: false,
           lineFocus: true,
           tts: true,
+          font: true,
         },
       }),
     )
     render(<App />)
-    await screen.findByText('5 tools active')
 
-    const grammarCheckbox = screen.getByRole('checkbox', { name: /Grammar color/i })
+    const grammarCheckbox = await screen.findByRole('checkbox', { name: /Grammar color/i })
     expect(grammarCheckbox).not.toBeChecked()
     expect(grammarCheckbox.closest('label')).not.toHaveClass('active')
   })
@@ -153,7 +134,6 @@ describe('popup App — per-tool feature cards', () => {
     fireEvent.click(ttsCheckbox)
 
     expect(ttsCheckbox).not.toBeChecked()
-    expect(await screen.findByText('5 tools active')).toBeInTheDocument()
     expect(mockedSaveSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         enabledTools: expect.objectContaining({ tts: false, pos: true }),
@@ -166,32 +146,14 @@ describe('popup App — per-tool feature cards', () => {
       settingsWith({ enabledTools: { ...defaultSettings.enabledTools, lineFocus: false } }),
     )
     render(<App />)
-    await screen.findByText('5 tools active')
+    const lineFocusCheckbox = await screen.findByRole('checkbox', { name: /Line focus/i })
+    expect(lineFocusCheckbox).not.toBeChecked()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /Line focus/i }))
+    fireEvent.click(lineFocusCheckbox)
 
-    expect(await screen.findByText('6 tools active')).toBeInTheDocument()
+    expect(lineFocusCheckbox).toBeChecked()
     expect(mockedSaveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ enabledTools: expect.objectContaining({ lineFocus: true }) }),
     )
-  })
-})
-
-describe('popup App — font selection', () => {
-  it('marks "Default" as selected initially', async () => {
-    render(<App />)
-    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Default' })).toHaveClass('selected')
-  })
-
-  it('selecting a different font updates the selected button and persists it', async () => {
-    render(<App />)
-    await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
-
-    fireEvent.click(screen.getByRole('button', { name: 'OpenDyslexic' }))
-
-    expect(screen.getByRole('button', { name: 'OpenDyslexic' })).toHaveClass('selected')
-    expect(screen.getByRole('button', { name: 'Default' })).not.toHaveClass('selected')
-    expect(mockedSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ font: 'opendyslexic' }))
   })
 })

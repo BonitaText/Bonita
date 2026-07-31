@@ -22,8 +22,6 @@
  */
 import {
   BookOpen,
-  Brain,
-  Check,
   FileText,
   Highlighter,
   List,
@@ -33,7 +31,7 @@ import {
   Type,
   Volume2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   BonitaSettings,
   defaultSettings,
@@ -41,6 +39,7 @@ import {
   saveSettings,
   ToolId,
 } from '@/shared/settings'
+import ReportIssue from './ReportIssue'
 
 /**
  * Describes one feature card in the popup grid.
@@ -91,21 +90,29 @@ const featureToggles: Array<{
     title: 'Read aloud',
     detail: 'Use browser text-to-speech for the page.',
   },
+  {
+    key: 'font',
+    icon: Type,
+    title: 'Font picker',
+    detail: 'Show a font-switching option in the dock.',
+  },
 ]
 
-const fonts: Array<{ value: BonitaSettings['font']; label: string }> = [
-  { value: 'default', label: 'Default' },
-  { value: 'opendyslexic', label: 'OpenDyslexic' },
-  { value: 'arial', label: 'Arial' },
-  { value: 'verdana', label: 'Verdana' },
-]
+/**
+ * The exact tool combo the "structure-first toolset" preset button turns
+ * on. Every other tool is switched off, since this is meant to set the
+ * dock to a specific, curated state rather than add on top of whatever's
+ * already enabled.
+ */
+const STRUCTURE_FIRST_TOOLS: ToolId[] = ['lineFocus', 'keywordBolding', 'sentenceSplitting', 'font']
 
 /**
  * Root popup component.
  *
  * Loads {@link BonitaSettings} on mount, then lets the user toggle dock-icon
- * visibility per tool, apply a one-click "calm reading" preset, and pick the
- * active reading font.
+ * visibility per tool, apply a one-click "structure-first" preset, pick the
+ * active reading font, and send a report to the Bonita GitHub repo via
+ * {@link ReportIssue}.
  */
 function App() {
   const [settings, setSettings] = useState<BonitaSettings>(defaultSettings)
@@ -114,14 +121,6 @@ function App() {
     getSettings().then(setSettings)
   }, [])
 
-  /**
-   * Count of tools currently visible in the toolbar dock, shown in the
-   * summary header as "N tools active".
-   */
-  const activeCount = useMemo(
-    () => featureToggles.filter((feature) => settings.enabledTools[feature.key]).length,
-    [settings],
-  )
 
   /**
    * Updates a single top-level {@link BonitaSettings} key, optimistically
@@ -151,20 +150,17 @@ function App() {
   }
 
   /**
-   * Shows every tool in the dock at once — the "calm reading" preset.
-   *
-   * This only affects dock *visibility*; it does not change whether any
-   * individual tool is currently active on the page.
+   * Sets the dock to exactly {@link STRUCTURE_FIRST_TOOLS} — line focus,
+   * keyword bolding, and sentence splitting — turning every other tool
+   * off. This only affects dock *visibility*; it does not change whether
+   * any individual tool is currently active on the page.
    */
   const enableReadingPreset = (): void => {
-    updateSetting('enabledTools', {
-      sentenceSplitting: true,
-      keywordBolding: true,
-      wordSimplification: true,
-      pos: true,
-      lineFocus: true,
-      tts: true,
-    })
+    const next = { ...settings.enabledTools }
+    for (const feature of featureToggles) {
+      next[feature.key] = STRUCTURE_FIRST_TOOLS.includes(feature.key)
+    }
+    updateSetting('enabledTools', next)
   }
 
   return (
@@ -179,26 +175,12 @@ function App() {
         </div>
       </section>
 
-      <section className="popup-summary">
-        <div>
-          <span>Current page</span>
-          <strong>{activeCount} tools active</strong>
-        </div>
-        <button
-          className={settings.enabled ? 'is-on' : ''}
-          type="button"
-          onClick={() => updateSetting('enabled', !settings.enabled)}
-        >
-          {settings.enabled ? <Check size={16} /> : <Brain size={16} />}
-          {settings.enabled ? 'Ready' : 'Preview'}
-        </button>
-      </section>
 
       <button className="preset-button" type="button" onClick={enableReadingPreset}>
         <FileText size={18} />
         <span>
-          <strong>Apply calm reading preset</strong>
-          <small>Show every tool in the toolbar</small>
+          <strong>Enable the structure-first toolset</strong>
+          <small>Provides a 3 tool combo recommended for any page</small>
         </span>
       </button>
 
@@ -225,24 +207,7 @@ function App() {
         })}
       </section>
 
-      <section className="font-strip" aria-label="Font options">
-        <div>
-          <Type size={17} />
-          <span>Font</span>
-        </div>
-        <div className="font-options">
-          {fonts.map((font) => (
-            <button
-              className={settings.font === font.value ? 'selected' : ''}
-              key={font.value}
-              type="button"
-              onClick={() => updateSetting('font', font.value)}
-            >
-              {font.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <ReportIssue />
     </main>
   )
 }

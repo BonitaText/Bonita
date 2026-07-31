@@ -58,6 +58,18 @@
  * A `resize` listener re-clamps the position within the new viewport bounds
  * whenever the window is resized, split-screened, or fullscreened, preventing
  * the trigger from drifting off-screen.
+ *
+ * ## Edge tucking
+ * Dropping the trigger within {@link EDGE_SNAP_THRESHOLD}px of the left or
+ * right edge on drag-release snaps it fully off-screen except for a
+ * {@link TUCK_PEEK_LEFT}/{@link TUCK_PEEK_RIGHT}px sliver, per edge
+ * (`pos.tuckedSide` tracks which edge). While
+ * tucked, a plain click (not a drag) slides the trigger back to a fully
+ * visible position instead of opening the dock — it stays there until the
+ * user drags it near an edge again. The tucked side is persisted alongside
+ * position so it survives reloads within the tab, and the `resize` listener
+ * re-pins tucked triggers to their edge (rather than clamping them back
+ * on-screen) whenever the viewport changes size.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -88,6 +100,25 @@ const DEFAULT_MARGIN = 40
  */
 const DRAG_THRESHOLD = 5
 
+/**
+ * How close (px) to the left/right viewport edge the trigger must be dropped
+ * for a drag-release to snap and tuck it against that edge.
+ */
+const EDGE_SNAP_THRESHOLD = 70
+
+/**
+ * Width (px) of the trigger that remains visible when tucked against the
+ * left edge — the rest is pushed off-screen.
+ */
+const TUCK_PEEK_LEFT = 10
+
+/**
+ * Width (px) of the trigger that remains visible when tucked against the
+ * right edge — the rest is pushed off-screen. Independent of
+ * {@link TUCK_PEEK_LEFT} so each edge can show a different amount.
+ */
+const TUCK_PEEK_RIGHT = 24
+
 // ─── sessionStorage helpers ───────────────────────────────────────────────────
 
 /**
@@ -102,7 +133,7 @@ const SESSION_KEY = 'bonita-site-enabled'
 /**
  * `sessionStorage` key for the trigger button's last known position.
  *
- * The value is a JSON object: `{ left: number; top: number }`.
+ * The value is a JSON object: `{ left: number; top: number; tuckedSide: 'left' | 'right' | null }`.
  * Persisting to `sessionStorage` (rather than `chrome.storage`) keeps the
  * position tab-local and avoids unnecessary storage round-trips on every drag.
  */
@@ -148,32 +179,44 @@ function setSiteEnabled(value: boolean): void {
 }
 
 /**
+ * Shape persisted for the trigger's on-screen position and tucked state.
+ */
+interface TriggerPos {
+  left: number
+  top: number
+  /** Which edge the trigger is tucked against, or `null` if not tucked. */
+  tuckedSide: 'left' | 'right' | null
+}
+
+/**
  * Reads the last saved trigger position from `sessionStorage`.
  *
  * Returns `null` if no position has been saved yet (e.g. first visit), so the
  * caller can fall back to the default bottom-right corner position.
  *
- * @returns The saved `{ left, top }` position, or `null` if absent.
+ * @returns The saved `{ left, top, tuckedSide }` position, or `null` if absent.
  */
-function getTriggerPos(): { left: number; top: number } | null {
+function getTriggerPos(): TriggerPos | null {
   try {
     const raw = sessionStorage.getItem(POS_KEY)
     if (!raw) return null
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    return { left: parsed.left, top: parsed.top, tuckedSide: parsed.tuckedSide ?? null }
   } catch {
     return null
   }
 }
 
 /**
- * Persists the trigger button's current position to `sessionStorage`.
+ * Persists the trigger button's current position (and tucked state) to
+ * `sessionStorage`.
  *
- * Called on every drag end so the position survives disable/re-enable cycles
- * within the same tab without resetting to the default corner.
+ * Called whenever the position changes so it survives disable/re-enable
+ * cycles within the same tab without resetting to the default corner.
  *
- * @param pos - The `{ left, top }` coordinates to persist.
+ * @param pos - The `{ left, top, tuckedSide }` state to persist.
  */
-function saveTriggerPos(pos: { left: number; top: number }): void {
+function saveTriggerPos(pos: TriggerPos): void {
   try {
     sessionStorage.setItem(POS_KEY, JSON.stringify(pos))
   } catch {
@@ -209,7 +252,7 @@ const styles = `
     justify-content: center;
     box-shadow: 0 18px 44px rgba(45, 33, 72, 0.36);
     z-index: 2147483647;
-    transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
+    transition: left 0.25s ease, transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease, opacity 0.22s ease;
     color: white;
     font-weight: 900;
     font-size: 20px;
@@ -226,6 +269,33 @@ const styles = `
   }
 
   .bonita-trigger.open { border-radius: 50%; }
+
+  /* Disables the position transition for the duration of an active drag so
+   * live movement tracks the pointer exactly; state-driven (via isDragging)
+   * rather than a direct style write, matching Toggle/IconToggle's pattern
+   * of visual state flowing from props/state into a class name. */
+  .bonita-trigger.dragging { transition: none; }
+
+  /* ── Edge-tucked state ──
+   * Most of the button is shifted off-screen (via "left") leaving only a
+   * TUCK_PEEK_LEFT/TUCK_PEEK_RIGHT-px sliver visible. Dimmed until hovered/touched so it reads as
+   * "tucked away" rather than "broken/cut off". Rounded only on the visible
+   * edge so the sliver doesn't look like a stray corner.
+   */
+  .bonita-trigger.tucked-left,
+  .bonita-trigger.tucked-right {
+    opacity: 0.5;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(45, 33, 72, 0.30);
+  }
+
+  .bonita-trigger.tucked-left:hover,
+  .bonita-trigger.tucked-right:hover {
+    opacity: 0.92;
+  }
+
+  .bonita-trigger.tucked-left { border-radius: 0 16px 16px 0; }
+  .bonita-trigger.tucked-right { border-radius: 16px 0 0 16px; }
 
   .bonita-trigger-mark {
     display: grid;
@@ -496,21 +566,46 @@ function App() {
   const [open, setOpen] = useState(false)
 
   /**
-   * Screen coordinates of the trigger button's top-left corner.
+   * Screen coordinates of the trigger button's top-left corner, plus which
+   * edge (if any) it's currently tucked against.
    *
    * Initialised from `sessionStorage` if a saved position exists (so the
-   * trigger stays where the user last dragged it across disable/re-enable
-   * cycles), falling back to the bottom-right viewport corner with
-   * {@link DEFAULT_MARGIN} padding on first render.
+   * trigger stays where the user last dragged/tucked it across
+   * disable/re-enable cycles), falling back to the bottom-right viewport
+   * corner, untucked, with {@link DEFAULT_MARGIN} padding on first render.
+   * If the saved state was tucked, `left` is recomputed against the current
+   * viewport width rather than reused verbatim, since the window may have
+   * been resized since the value was saved.
    */
-  const [pos, setPos] = useState(() => {
+  const [pos, setPos] = useState<TriggerPos>(() => {
     const saved = getTriggerPos()
-    if (saved) return saved
+    if (saved) {
+      if (saved.tuckedSide === 'left') {
+        return { left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: saved.top, tuckedSide: 'left' }
+      }
+      if (saved.tuckedSide === 'right') {
+        return { left: window.innerWidth - TUCK_PEEK_RIGHT, top: saved.top, tuckedSide: 'right' }
+      }
+      return { left: saved.left, top: saved.top, tuckedSide: null }
+    }
     return {
       left: window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN,
       top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
+      tuckedSide: null,
     }
   })
+
+  /**
+   * Whether the trigger is actively being dragged right now.
+   *
+   * Drives the `.dragging` CSS class (which disables the position
+   * transition) so live drag movement isn't smoothed/lagged, while the
+   * transition still applies normally to the edge-snap-on-release and the
+   * tap-to-untuck slide, since `isDragging` is `false` for those. State-
+   * driven rather than a direct `ref.style` write, so visual state flows
+   * from React the same way it does for {@link Toggle}/{@link IconToggle}.
+   */
+  const [isDragging, setIsDragging] = useState(false)
 
   /**
    * Master per-site enabled flag.
@@ -542,16 +637,19 @@ function App() {
     pos: true,
     lineFocus: true,
     tts: true,
+    font: true,
   }
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dockRef = useRef<HTMLDivElement>(null)
 
   /**
-   * Persists the trigger position to `sessionStorage` whenever it changes.
+   * Persists the trigger position (and tucked state) to `sessionStorage`
+   * whenever it changes.
    *
-   * This ensures the user's chosen position survives disable/re-enable cycles
-   * within the same tab without resetting to the default corner.
+   * This ensures the user's chosen position/tuck state survives
+   * disable/re-enable cycles within the same tab without resetting to the
+   * default corner.
    */
   useEffect(() => {
     saveTriggerPos(pos)
@@ -560,16 +658,28 @@ function App() {
   /**
    * Re-clamps the trigger position within the viewport on resize.
    *
-   * Handles split-screen, fullscreen transitions, and window resizing — the
-   * trigger snaps to the nearest valid in-bounds position instead of drifting
-   * off-screen or glitching back to the default corner.
+   * Handles split-screen, fullscreen transitions, and window resizing. A
+   * tucked trigger is re-pinned to its edge (recomputing `left` from the new
+   * viewport width) rather than clamped like a normal position, since
+   * clamping would pull it back fully on-screen. An untucked trigger snaps
+   * to the nearest valid in-bounds position instead of drifting off-screen.
    */
   useEffect(() => {
     const onResize = () => {
-      setPos(prev => ({
-        left: Math.max(0, Math.min(window.innerWidth - TRIGGER_SIZE, prev.left)),
-        top: Math.max(0, Math.min(window.innerHeight - TRIGGER_SIZE, prev.top)),
-      }))
+      setPos(prev => {
+        const top = Math.max(0, Math.min(window.innerHeight - TRIGGER_SIZE, prev.top))
+        if (prev.tuckedSide === 'left') {
+          return { ...prev, left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top }
+        }
+        if (prev.tuckedSide === 'right') {
+          return { ...prev, left: window.innerWidth - TUCK_PEEK_RIGHT, top }
+        }
+        return {
+          ...prev,
+          left: Math.max(0, Math.min(window.innerWidth - TRIGGER_SIZE, prev.left)),
+          top,
+        }
+      })
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -659,7 +769,12 @@ function App() {
    * Mutable ref tracking drag state for the trigger button.
    *
    * A ref (not state) is used deliberately: updating it during a drag does not
-   * trigger re-renders, keeping drag performance smooth.
+   * trigger re-renders, keeping drag performance smooth. `lastLeft`/`lastTop`
+   * track the most recently applied (clamped) position during the drag.
+   * `wasTuckedSide` is an explicit snapshot of `pos.tuckedSide` taken at
+   * `mousedown` — `onUp` reads from this rather than closing over `pos`
+   * directly, so a click-to-untuck decision can't silently go stale if
+   * something else (e.g. a `resize`) updates `pos` mid-gesture.
    */
   const dragStateRef = useRef({
     originLeft: 0,
@@ -668,16 +783,33 @@ function App() {
     startY: 0,
     /** `true` once the pointer has moved beyond {@link DRAG_THRESHOLD} pixels. */
     moved: false,
+    lastLeft: 0,
+    lastTop: 0,
+    wasTuckedSide: null as 'left' | 'right' | null,
   })
 
   /**
    * Handles `mousedown` on the trigger button.
    *
-   * Distinguishes between a **click** (toggle dock) and a **drag** (reposition
-   * trigger) by tracking pointer travel distance:
+   * Distinguishes between a **click** and a **drag** by tracking pointer
+   * travel distance:
    * - Travel > {@link DRAG_THRESHOLD} px before `mouseup` → drag; updates
-   *   `pos`, clamped to keep the trigger fully within the viewport.
-   * - `mouseup` without exceeding the threshold → click; toggles `open`.
+   *   `pos` live, clamped to keep the trigger fully within the viewport, and
+   *   un-tucks it immediately so it follows the cursor normally. On release,
+   *   dropping within {@link EDGE_SNAP_THRESHOLD}px of the left or right edge
+   *   snaps and tucks the trigger against that edge; otherwise it settles
+   *   wherever it was dropped.
+   * - `mouseup` without exceeding the threshold → click. If the trigger is
+   *   currently tucked, this slides it back to a fully visible position
+   *   (rather than opening the dock) and it stays there until dragged near
+   *   an edge again. Otherwise it toggles `open` as before.
+   *
+   * `isDragging` is `true` for the duration of an active drag, which adds
+   * the `.dragging` class (disabling the position transition) so live
+   * dragging tracks the pointer exactly instead of lagging behind a smoothed
+   * transition — the transition still applies normally to the edge-snap on
+   * release and the tap-to-untuck slide, since `isDragging` is `false` by
+   * then.
    *
    * Global `mousemove` / `mouseup` listeners are attached for the duration of
    * the interaction and removed on `mouseup` to avoid leaking handlers.
@@ -692,7 +824,12 @@ function App() {
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
+      lastLeft: pos.left,
+      lastTop: pos.top,
+      wasTuckedSide: pos.tuckedSide,
     }
+
+    setIsDragging(true)
 
     const onMove = (ev: MouseEvent): void => {
       const s = dragStateRef.current
@@ -702,23 +839,54 @@ function App() {
         s.moved = true
       }
       if (s.moved) {
-        setPos({
-          left: Math.max(
-            0,
-            Math.min(window.innerWidth - TRIGGER_SIZE, s.originLeft + dx),
-          ),
-          top: Math.max(
-            0,
-            Math.min(window.innerHeight - TRIGGER_SIZE, s.originTop + dy),
-          ),
-        })
+        const left = Math.max(
+          0,
+          Math.min(window.innerWidth - TRIGGER_SIZE, s.originLeft + dx),
+        )
+        const top = Math.max(
+          0,
+          Math.min(window.innerHeight - TRIGGER_SIZE, s.originTop + dy),
+        )
+        s.lastLeft = left
+        s.lastTop = top
+        // Un-tuck immediately once a real drag starts, so the trigger is
+        // fully visible and follows the cursor rather than staying clipped.
+        setPos({ left, top, tuckedSide: null })
       }
     }
 
     const onUp = (): void => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
-      if (!dragStateRef.current.moved) setOpen(o => !o)
+
+      setIsDragging(false)
+
+      const s = dragStateRef.current
+
+      if (!s.moved) {
+        // Plain click, no drag. Read the tucked state from the snapshot
+        // taken at mousedown rather than the (potentially stale) `pos`
+        // closure.
+        if (s.wasTuckedSide) {
+          const untuckedLeft =
+            s.wasTuckedSide === 'left'
+              ? DEFAULT_MARGIN
+              : window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN
+          setPos({ left: untuckedLeft, top: s.lastTop, tuckedSide: null })
+        } else {
+          setOpen(o => !o)
+        }
+        return
+      }
+
+      // Drag ended — snap/tuck if dropped near an edge, otherwise settle in place.
+      if (s.lastLeft < EDGE_SNAP_THRESHOLD) {
+        setPos({ left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: s.lastTop, tuckedSide: 'left' })
+      } else if (s.lastLeft > window.innerWidth - TRIGGER_SIZE - EDGE_SNAP_THRESHOLD) {
+        setPos({ left: window.innerWidth - TUCK_PEEK_RIGHT, top: s.lastTop, tuckedSide: 'right' })
+      } else {
+        setPos({ left: s.lastLeft, top: s.lastTop, tuckedSide: null })
+      }
     }
 
     document.addEventListener('mousemove', onMove)
@@ -742,10 +910,12 @@ function App() {
 
       <button
         ref={triggerRef}
-        className={`bonita-trigger ${open ? 'open' : ''}`}
+        className={`bonita-trigger ${open ? 'open' : ''} ${isDragging ? 'dragging' : ''} ${
+          pos.tuckedSide === 'left' ? 'tucked-left' : pos.tuckedSide === 'right' ? 'tucked-right' : ''
+        }`}
         style={{ left: pos.left, top: pos.top }}
         onMouseDown={onMouseDown}
-        title="drag to move"
+        title={pos.tuckedSide ? 'Tap to bring back' : 'drag to move'}
         data-bonita-root="true"
       >
         <span className="bonita-trigger-mark">B</span>
@@ -842,10 +1012,12 @@ function App() {
               <TTSReader />
             </div>
           )}
-          <FontSelector
-            open={openPopup === 'font'}
-            onOpen={() => togglePopup('font')}
-          />
+          {toolVisible.font && (
+            <FontSelector
+              open={openPopup === 'font'}
+              onOpen={() => togglePopup('font')}
+            />
+          )}
           </>
         )}
       </div>

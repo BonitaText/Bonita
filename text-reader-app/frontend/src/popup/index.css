@@ -291,3 +291,110 @@ input {
     transition: none !important;
   }
 }
+
+.report-issue {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(111, 79, 216, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.76);
+}
+
+.report-issue-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.report-issue-header strong {
+  color: #2d2148;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.report-issue-count {
+  color: #716b7b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.report-issue textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(111, 79, 216, 0.16);
+  border-radius: 12px;
+  background: #fffdf8;
+  color: #17131f;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: vertical;
+  transition: border-color 160ms ease;
+}
+
+.report-issue textarea:focus {
+  outline: none;
+  border-color: rgba(111, 79, 216, 0.5);
+}
+
+.report-issue textarea.over-limit {
+  border-color: #c0392b;
+}
+
+.report-issue-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.report-issue-footer span {
+  color: #716b7b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.report-issue-footer span.over-limit {
+  color: #c0392b;
+}
+
+.report-issue-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 999px;
+  color: #f7f0df;
+  background: #6f4fd8;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.report-issue-footer button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(111, 79, 216, 0.28);
+}
+
+.report-issue-footer button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.report-issue-status {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #716b7b;
+}
+
+.report-issue-status.success {
+  color: #2f7d4f;
+}
+
+.report-issue-status.error {
+  color: #c0392b;
+}
