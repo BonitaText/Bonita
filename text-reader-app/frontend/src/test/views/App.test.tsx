@@ -7,7 +7,6 @@ import { useSettings } from '../../content/hooks/useSettings'
 // If these ever change in the source file, update them here too.
 const TRIGGER_SIZE = 58
 const DEFAULT_MARGIN = 40
-const EDGE_SNAP_THRESHOLD = 70
 const SESSION_KEY = 'bonita-site-enabled'
 const POS_KEY = 'bonita-trigger-pos'
 
