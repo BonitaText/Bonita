@@ -38,7 +38,10 @@ const scoreParagraphs     = paragraphScorer.scoreParagraphs      as MockedFuncti
 const getParagraphs       = analysisCache.getParagraphs          as MockedFunction<typeof analysisCache.getParagraphs>
 
 const MOCK_SCORES    = [{ text: 'Some paragraph.', action: 'split' as const }]
-const MOCK_KEYWORDS  = ['machine learning', 'neural network']
+const MOCK_KEYWORDS = [
+  { term: 'machine learning', score: 5 },
+  { term: 'neural network', score: 3 },
+]
 const MOCK_FREQ      = new Map([['the', 1], ['complex', 9999]])
 const MOCK_PARAGRAPHS = ['paragraph one', 'paragraph two']
 
@@ -182,19 +185,8 @@ describe('useReadingTools', () => {
       act(() => { vi.runAllTimers() })
       await act(async () => { await Promise.resolve() })
 
-      expect(extractKeywords).toHaveBeenCalledWith(MOCK_PARAGRAPHS, 5)
-      expect(applyPhraseBolding).toHaveBeenCalledWith(MOCK_KEYWORDS)
-    })
-
-    it('falls back to boldTargetCount = 7 when not set', async () => {
-      renderHook(() => useReadingTools(), {
-        wrapper: makeSettingsWrapper({ keywordBolding: true }),
-      })
-
-      act(() => { vi.runAllTimers() })
-      await act(async () => { await Promise.resolve() })
-
-      expect(extractKeywords).toHaveBeenCalledWith(MOCK_PARAGRAPHS, 7)
+      expect(extractKeywords).toHaveBeenCalledWith(MOCK_PARAGRAPHS)
+      expect(applyPhraseBolding).toHaveBeenCalledWith(MOCK_KEYWORDS, 50)
     })
 
     it('does not call extractKeywords when keywordBolding is off', () => {
@@ -272,7 +264,7 @@ describe('useReadingTools', () => {
       const callOrder: string[] = []
       applySentenceSplit.mockImplementation(() => { callOrder.push('split') })
       applyPOSHighlight.mockImplementation(()  => { callOrder.push('pos') })
-      applyPhraseBolding.mockImplementation(() => { callOrder.push('bold') })
+      applyPhraseBolding.mockImplementation(() => { callOrder.push('bold'); return Promise.resolve() })
       applyWordUnderlines.mockImplementation(()=> { callOrder.push('underline') })
 
       renderHook(() => useReadingTools(), {

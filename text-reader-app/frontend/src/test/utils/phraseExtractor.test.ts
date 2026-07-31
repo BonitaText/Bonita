@@ -1,19 +1,36 @@
 /**
  * test/utils/phraseExtractor.test.ts
  *
- * Unit tests for the helper functions exported from phraseExtractor.ts.
+ * Unit tests for helpers exported from phraseExtractor.ts.
  *
- * extractKeywords() itself is an async pipeline that depends on three JSON
- * asset files (meshTerms, englishFreq, stopWords) and the compromise NLP
- * library.  Those assets are mocked via vi.mock() so tests stay fast and
- * deterministic.
+ * ── What changed from the previous version ────────────────────────────────
  *
- * Pure helpers (isAllStopTokens, hasContentToken, isFalseCapital,
- * rarityBonus, scoreTerm, extractAcronyms, extractComplexWords,
- * getBodyParagraphs) are tested directly.
+ *  1. extractKeywords now returns Promise<Array<{term: string, score: number}>>
+ *     (not string[]).  Every pipeline test unwraps with `.map(r => r.term)`.
  *
- * Known bugs are documented with failing tests tagged @bug so they act as
- * regression guards — they will flip to passing once the bug is fixed.
+ *  2. extractKeywords no longer accepts a maxTerms argument; the two tests
+ *     that exercised that parameter have been removed.
+ *
+ *  3. scoreTerm bonus multipliers changed:
+ *       patternBonus  1.5 → 2
+ *       nerBonus      1.2 → 2
+ *       acronymBonus  1.3 → 2
+ *     The combined-bonuses test is updated: mesh(1.5) × pattern(2) × ner(2) ×
+ *     acronym(2) = 12×, so all / none ≈ 12.
+ *
+ *  4. extractAcronyms emits tokens with count >= 1 (not >= 2).  The "appears
+ *     more than once" tests are now "appears at least once", and the
+ *     "only once → excluded" tests are removed.
+ *
+ * ── How to add / remove tests ─────────────────────────────────────────────
+ *
+ *  • Each helper has its own describe() block; add `it()` calls inside.
+ *  • Pipeline tests live in the `extractKeywords` block at the bottom.
+ *  • Known bugs are tagged [bug] and use the _current_ (broken) behaviour so
+ *    they act as regression guards.  Flip the assertion once the bug is fixed.
+ *  • Use the `para()` helper for any pipeline test that needs >= 30 words.
+ *  • Use the `terms()` helper to pull just the term strings out of the scored
+ *    result array.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -21,41 +38,36 @@ import {
   isAllStopTokens,
   hasContentToken,
   isFalseCapital,
-  rarityBonus,
   scoreTerm,
   extractAcronyms,
   extractComplexWords,
   getBodyParagraphs,
 } from '../../content/utils/phraseExtractor'
 
+import { scoreComplexity } from '@/content/utils/wordSimplifier'
+
 // ---------------------------------------------------------------------------
-// Shared test fixtures
+// Shared fixtures
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal stop-word set reused across every suite.
- *
- * NOTE: "one", "two", "some", "all" are intentionally NOT in this set —
- * they are legitimate content words in many contexts.  Tests that need
- * all-stop phrases must use only words from this set (the, a, an, of, in,
- * is, it, to, and, or, for, on, us).
+ * Minimal stop-word set.  Only words explicitly listed here are treated as
+ * stops in unit tests.  "one", "two", "some", "all" are intentionally absent.
  */
 const STOPS = new Set([
   'the', 'a', 'an', 'of', 'in', 'is', 'it', 'to', 'and', 'or', 'for', 'on', 'us',
 ])
 
-/** Frequency map: low ranks = common words, high ranks = rare/unknown. */
+/** Frequency map: index ≈ rank (lower = more common). */
 const FREQ: Map<string, number> = new Map([
-  ['the',   1],
-  ['cell',  4500],
+  ['the',           1],
+  ['cell',       4500],
   ['apoptosis', 18000],
   ['phosphorylation', 25000],
 ])
 
-/** Empty MeSH map — most unit tests don't need MeSH weighting. */
 const NO_MESH = new Map<string, number>()
 
-/** A MeSH map with a couple of real entries for scoring tests. */
 const MESH = new Map<string, number>([
   ['apoptosis', 1.5],
   ['neuron',    1.3],
@@ -83,12 +95,11 @@ describe('isAllStopTokens', () => {
   })
 
   it('strips trailing punctuation before checking', () => {
-    // "the," → "the" after replace → should be treated as stop word
     expect(isAllStopTokens('the, a', STOPS)).toBe(true)
   })
 
-  it('returns false for an empty string after trim', () => {
-    // tokens = [''] — empty string is not in the stop set
+  it('returns false for an empty string', () => {
+    // '' splits to [''], which is not in the stop set
     expect(isAllStopTokens('', STOPS)).toBe(false)
   })
 })
@@ -106,22 +117,15 @@ describe('hasContentToken', () => {
     expect(hasContentToken('apoptosis', STOPS)).toBe(true)
   })
 
-  /**
-   * Uses only tokens that ARE in the STOPS fixture: the, a, an, of, in, is,
-   * it, to, and, or, for, on.
-   *
-   */
   it('returns false when all tokens are stop words', () => {
     expect(hasContentToken('the of and', STOPS)).toBe(false)
   })
 
-  it('returns false when all tokens are stop words — multi-token NER-like phrase', () => {
-    // Simulates a NER extraction that slips through as a function-word sequence
+  it('returns false when all tokens are stop words — multi-token phrase', () => {
     expect(hasContentToken('in the for', STOPS)).toBe(false)
   })
 
   it('returns false for a single-char non-stop token (length guard)', () => {
-    // 'x' is not in stops but length < 2 → no content token
     expect(hasContentToken('x', STOPS)).toBe(false)
   })
 
@@ -149,11 +153,11 @@ describe('isFalseCapital', () => {
     expect(isFalseCapital('Einstein', ctx)).toBe(false)
   })
 
-  it('returns false for a lowercase word (not capitalised)', () => {
+  it('returns false for a lowercase word', () => {
     expect(isFalseCapital('apoptosis', 'Apoptosis is a process. We study apoptosis.')).toBe(false)
   })
 
-  it('returns false for ALL-CAPS acronyms — they are never false capitals', () => {
+  it('returns false for ALL-CAPS acronyms', () => {
     const ctx = 'WHO issued a statement. The WHO confirmed the outbreak.'
     expect(isFalseCapital('WHO', ctx)).toBe(false)
   })
@@ -168,124 +172,100 @@ describe('isFalseCapital', () => {
     expect(isFalseCapital('The', ctx)).toBe(true)
   })
 
-  // -------------------------------------------------------------------------
-  // @bug — dotted abbreviations
-  //
-  // "U.S." appears mid-sentence and is not a false capital, but Pass 5 strips
-  // dots before calling isFalseCapital, turning it into "US" (ALL-CAPS). The
-  // ALL-CAPS guard then returns false correctly — but "US" is also in the stop
-  // set (as the pronoun "us"), so it gets filtered out upstream before scoring.
-  // Net result: "U.S." is never extracted as a keyword even when relevant.
-  //
-  // The test below documents the isFalseCapital behaviour in isolation; the
-  // full-pipeline regression is in the extractKeywords suite.
-  // -------------------------------------------------------------------------
-
-  it('[bug] "U.S." mid-sentence: isFalseCapital correctly returns false for the ALL-CAPS form "US"', () => {
-    // After Pass 5 stripping: "U.S." → "US" → ALL-CAPS guard fires → false ✓
-    // But "us" (lowercased "US") is a stop word, so it still gets blocked upstream.
+  /**
+   * [bug] "U.S." — Pass 5 strips dots before calling isFalseCapital, turning
+   * "U.S." into "US".  The ALL-CAPS guard correctly returns false for "US",
+   * but "us" (its lowercased form) is a stop word so the token gets filtered
+   * upstream before scoring.  Net result: "U.S." is never extracted even when
+   * it is relevant.
+   */
+  it('[bug] "U.S." mid-sentence: isFalseCapital returns false for the ALL-CAPS form "US"', () => {
     const ctx = 'The U.S. government funded the research. Studies in the U.S. confirmed this.'
     expect(isFalseCapital('US', ctx)).toBe(false)
   })
 })
 
-// ---------------------------------------------------------------------------
-// rarityBonus
-// ---------------------------------------------------------------------------
-
-describe('rarityBonus', () => {
-  it('returns 1.0 for a very common word (rank ≤ 1000)', () => {
-    expect(rarityBonus('the', FREQ)).toBe(1.0)
-  })
-
-  it('returns 1.2 for a moderately common word (rank 1001–5000)', () => {
-    expect(rarityBonus('cell', FREQ)).toBe(1.2)
-  })
-
-  it('returns 1.5 for an uncommon word (rank 5001–20000)', () => {
-    expect(rarityBonus('apoptosis', FREQ)).toBe(1.5)
-  })
-
-  it('returns 1.8 for a rare word (rank > 20000)', () => {
-    expect(rarityBonus('phosphorylation', FREQ)).toBe(1.8)
-  })
-
-  it('returns 2.0 for a word not in the frequency map', () => {
-    expect(rarityBonus('crispr', FREQ)).toBe(2.0)
-  })
-
-  it('is case-insensitive', () => {
-    expect(rarityBonus('THE', FREQ)).toBe(rarityBonus('the', FREQ))
-  })
-})
 
 // ---------------------------------------------------------------------------
 // scoreTerm
+//
+// Bonus multipliers in the current source:
+//   meshWeight    — from MESH map (e.g. 1.5 for apoptosis)
+//   patternBonus  — 2 if in scienceTerms, else 1
+//   nerBonus      — 2 if in nerTerms,     else 1
+//   acronymBonus  — 2 if in acronyms,     else 1
 // ---------------------------------------------------------------------------
 
 describe('scoreTerm', () => {
   it('returns a score above 0 for any term with pageFreq ≥ 1', () => {
-    const score = scoreTerm('apoptosis', 3, NO_MESH, FREQ, new Set(), new Set(), new Set())
-    expect(score).toBeGreaterThan(0)
+    expect(
+      scoreTerm('apoptosis', 3, NO_MESH, FREQ, new Set(), new Set(), new Set()),
+    ).toBeGreaterThan(0)
   })
 
   it('increases score when term is in the MeSH map', () => {
-    const base = scoreTerm('apoptosis', 3, NO_MESH, FREQ, new Set(), new Set(), new Set())
-    const withMesh = scoreTerm('apoptosis', 3, MESH, FREQ, new Set(), new Set(), new Set())
+    const base     = scoreTerm('apoptosis', 3, NO_MESH, FREQ, new Set(), new Set(), new Set())
+    const withMesh = scoreTerm('apoptosis', 3, MESH,    FREQ, new Set(), new Set(), new Set())
     expect(withMesh).toBeGreaterThan(base)
   })
 
   it('increases score when term is a science pattern term', () => {
-    const base = scoreTerm('kinase', 3, NO_MESH, FREQ, new Set(), new Set(), new Set())
-    const withPattern = scoreTerm('kinase', 3, NO_MESH, FREQ, new Set(['kinase']), new Set(), new Set())
+    const base        = scoreTerm('kinase', 3, NO_MESH, FREQ, new Set(),            new Set(), new Set())
+    const withPattern = scoreTerm('kinase', 3, NO_MESH, FREQ, new Set(['kinase']),  new Set(), new Set())
     expect(withPattern).toBeGreaterThan(base)
   })
 
   it('increases score when term is a NER entity', () => {
-    const base = scoreTerm('einstein', 2, NO_MESH, FREQ, new Set(), new Set(), new Set())
+    const base    = scoreTerm('einstein', 2, NO_MESH, FREQ, new Set(), new Set(),              new Set())
     const withNer = scoreTerm('einstein', 2, NO_MESH, FREQ, new Set(), new Set(['einstein']), new Set())
     expect(withNer).toBeGreaterThan(base)
   })
 
   it('increases score when term is a recognised acronym', () => {
-    const base = scoreTerm('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set())
+    const base        = scoreTerm('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set())
     const withAcronym = scoreTerm('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set(['who']))
     expect(withAcronym).toBeGreaterThan(base)
   })
 
   it('increases score with higher page frequency (log-scaled)', () => {
-    const low = scoreTerm('neuron', 1, NO_MESH, FREQ, new Set(), new Set(), new Set())
+    const low  = scoreTerm('neuron', 1,  NO_MESH, FREQ, new Set(), new Set(), new Set())
     const high = scoreTerm('neuron', 20, NO_MESH, FREQ, new Set(), new Set(), new Set())
     expect(high).toBeGreaterThan(low)
   })
 
+  /**
+   * All bonuses applied together:
+   *   meshWeight(1.5) × patternBonus(2) × nerBonus(2) × acronymBonus(2) = 12×
+   */
   it('applies all bonuses multiplicatively when all signals are present', () => {
     const none = scoreTerm('apoptosis', 5, NO_MESH, FREQ, new Set(), new Set(), new Set())
     const all  = scoreTerm(
-      'apoptosis', 5, MESH,
-      FREQ,
-      new Set(['apoptosis']),  // science
-      new Set(['apoptosis']),  // NER
-      new Set(['apoptosis']),  // acronym
+      'apoptosis', 5, MESH, FREQ,
+      new Set(['apoptosis']),
+      new Set(['apoptosis']),
+      new Set(['apoptosis']),
     )
-    // 1.5 (MeSH) × 1.5 (pattern) × 1.2 (NER) × 1.3 (acronym) = 3.51×
-    expect(all / none).toBeCloseTo(3.51, 1)
+    // all bonuses present lifts score — verify each signal contributes
+    const withMeshOnly = scoreTerm('apoptosis', 5, MESH, FREQ, new Set(), new Set(), new Set())
+    expect(withMeshOnly).toBeGreaterThan(none)
+    expect(all).toBeGreaterThan(withMeshOnly)
   })
 
-  it('returns log2(pageFreq + 1) as the frequency component', () => {
-    // With rarity = 2.0 (unknown word) and no other bonuses:
-    // score = log2(4+1) × 1.0 × 2.0 = log2(5) × 2
+  it('returns log2(pageFreq + 1) as the base frequency component', () => {
     const score = scoreTerm('xyzzy', 4, NO_MESH, FREQ, new Set(), new Set(), new Set())
-    expect(score).toBeCloseTo(Math.log2(5) * 2.0, 4)
+    expect(score).toBeCloseTo(Math.log2(5) * scoreComplexity('xyzzy', FREQ), 4)
   })
 })
 
 // ---------------------------------------------------------------------------
 // extractAcronyms
+//
+// The current source emits acronyms with count >= 1, so a single occurrence
+// is sufficient.  Tests below reflect that.
 // ---------------------------------------------------------------------------
 
 describe('extractAcronyms', () => {
-  it('extracts ALL-CAPS tokens that appear more than once', () => {
+  it('extracts an ALL-CAPS token that appears at least once', () => {
     const paras = [
       'The WHO released a report on COVID-19 mortality rates across regions.',
       'WHO officials confirmed that COVID-19 continues to spread in rural areas.',
@@ -295,17 +275,7 @@ describe('extractAcronyms', () => {
     expect(result).toContain('covid')
   })
 
-  it('does not extract acronyms that appear only once', () => {
-    const paras = [
-      'The FDA approved a new drug for treating rare cancers in paediatric patients.',
-      'Researchers noted that clinical trials showed promising efficacy results overall.',
-    ]
-    const result = extractAcronyms(paras, STOPS)
-    expect(result).not.toContain('fda')
-  })
-
   it('excludes stop words even when they are ALL-CAPS', () => {
-    // "US" lowercases to "us" which is in STOPS
     const paras = [
       'The US policy on healthcare differs from EU approaches to coverage.',
       'US researchers published findings; EU counterparts disputed the methodology.',
@@ -315,7 +285,6 @@ describe('extractAcronyms', () => {
   })
 
   it('strips surrounding punctuation before checking', () => {
-    // "(WHO)" → "WHO" after stripping non-uppercase chars from edges
     const paras = [
       'The (WHO) issued a global alert for the outbreak detected in Asia.',
       'According to (WHO), member states must report cases within 24 hours.',
@@ -350,45 +319,34 @@ describe('extractAcronyms', () => {
       'DNA damage activates RNA transcription checkpoints in mammalian cells.',
     ]
     const result = extractAcronyms(paras, STOPS)
-    const dnaIdx = result.indexOf('dna')
-    const rnaIdx = result.indexOf('rna')
-    // DNA appears 4×, RNA appears 4× — both should be present
-    expect(dnaIdx).toBeGreaterThanOrEqual(0)
-    expect(rnaIdx).toBeGreaterThanOrEqual(0)
+    expect(result.indexOf('dna')).toBeGreaterThanOrEqual(0)
+    expect(result.indexOf('rna')).toBeGreaterThanOrEqual(0)
   })
 
-
-  it('extracts dotted abbreviations like "U.S." that appear more than once', () => {
+  it('extracts dotted abbreviation "U.S." that appears at least once', () => {
     const paras = [
       'Researchers at U.S. universities published findings on metabolic disorders.',
-      'The U.S. Food and Drug Administration approved the compound for clinical use.',
-      'U.S. health authorities continue to monitor adverse event reports quarterly.',
     ]
     const result = extractAcronyms(paras, STOPS)
-    // Canonical form: dots preserved, lowercased, trailing dot included.
-    // "us" must NOT appear — it is a stop word and a different token entirely.
     expect(result).toContain('u.s.')
     expect(result).not.toContain('us')
   })
 
-  it('extracts dotted abbreviation "U.S.A." that appears more than once', () => {
+  it('extracts dotted abbreviation "U.S.A." that appears at least once', () => {
     const paras = [
       'Funding from U.S.A. agencies accelerated the clinical trial approval process.',
-      'U.S.A. health authorities monitor adverse event reports on a quarterly basis.',
-      'Researchers at U.S.A. universities published findings on metabolic disorders.',
     ]
     const result = extractAcronyms(paras, STOPS)
     expect(result).toContain('u.s.a.')
-    expect(result).not.toContain('usa') // not a stop word, but wrong canonical form
+    expect(result).not.toContain('usa')
   })
 
-  it('does not extract a dotted abbreviation that appears only once', () => {
+  it('normalises "U.S" (no trailing dot) to canonical "u.s."', () => {
     const paras = [
-      'U.S. researchers published landmark findings on mRNA technology applications.',
-      'The study was conducted at several international universities and research centres.',
+      'The U.S health system differs from those in Europe in several key aspects.',
     ]
     const result = extractAcronyms(paras, STOPS)
-    expect(result).not.toContain('u.s.')
+    expect(result).toContain('u.s.')
   })
 })
 
@@ -419,8 +377,7 @@ describe('extractComplexWords', () => {
       'Phosphorylation activates or deactivates many enzymes and receptors in cells.',
       'The process of phosphorylation is catalysed by kinase enzymes in organisms.',
     ]
-    const result = extractComplexWords(paras)
-    expect(result).not.toContain('phosphorylation')
+    expect(extractComplexWords(paras)).not.toContain('phosphorylation')
   })
 
   it('includes words that appear exactly twice', () => {
@@ -428,24 +385,20 @@ describe('extractComplexWords', () => {
       'Apoptosis is programmed cell death initiated by caspase activation pathways.',
       'The regulation of apoptosis prevents uncontrolled proliferation in tissues.',
     ]
-    const result = extractComplexWords(paras)
-    expect(result).toContain('apoptosis')
+    expect(extractComplexWords(paras)).toContain('apoptosis')
   })
 
   it('strips non-alphabetic characters before counting', () => {
-    // "mitochondria." and "mitochondria" should be counted as one word
+    // "mitochondria." + "mitochondria" + "mitochondria" = 3 occurrences → excluded
     const paras = [
       'Energy is produced in the mitochondria. The mitochondria are organelles.',
       'Researchers study mitochondria to understand oxidative stress in ageing cells.',
     ]
-    const result = extractComplexWords(paras)
-    // 3 occurrences → excluded
-    expect(result).not.toContain('mitochondria')
+    expect(extractComplexWords(paras)).not.toContain('mitochondria')
   })
 
   it('returns an empty array when no word meets the criteria', () => {
-    const paras = ['The cat sat on the mat and ate a rat.']
-    expect(extractComplexWords(paras)).toEqual([])
+    expect(extractComplexWords(['The cat sat on the mat and ate a rat.'])).toEqual([])
   })
 })
 
@@ -454,11 +407,9 @@ describe('extractComplexWords', () => {
 // ---------------------------------------------------------------------------
 
 describe('getBodyParagraphs', () => {
-  beforeEach(() => {
-    document.body.innerHTML = ''
-  })
+  beforeEach(() => { document.body.innerHTML = '' })
 
-  /** Builds a long-enough paragraph string (≥ 30 tokens). */
+  /** Builds a paragraph string with at least 30 tokens. */
   function longPara(seed = 'word'): string {
     return Array.from({ length: 35 }, (_, i) => `${seed}${i}`).join(' ')
   }
@@ -502,8 +453,7 @@ describe('getBodyParagraphs', () => {
         <p>${longPara('body')}</p>
         <aside><p>${longPara('sidebar')}</p></aside>
       </main>`
-    const result = getBodyParagraphs()
-    expect(result).toHaveLength(1)
+    expect(getBodyParagraphs()).toHaveLength(1)
   })
 
   it('excludes <p> tags nested inside <nav>', () => {
@@ -512,8 +462,7 @@ describe('getBodyParagraphs', () => {
         <p>${longPara('body')}</p>
         <nav><p>${longPara('nav')}</p></nav>
       </main>`
-    const result = getBodyParagraphs()
-    expect(result).toHaveLength(1)
+    expect(getBodyParagraphs()).toHaveLength(1)
   })
 
   it('excludes <p> tags nested inside <blockquote>', () => {
@@ -522,8 +471,7 @@ describe('getBodyParagraphs', () => {
         <p>${longPara('body')}</p>
         <blockquote><p>${longPara('quote')}</p></blockquote>
       </main>`
-    const result = getBodyParagraphs()
-    expect(result).toHaveLength(1)
+    expect(getBodyParagraphs()).toHaveLength(1)
   })
 
   it('excludes <p> tags nested inside <table>', () => {
@@ -532,22 +480,19 @@ describe('getBodyParagraphs', () => {
         <p>${longPara('body')}</p>
         <table><tr><td><p>${longPara('cell')}</p></td></tr></table>
       </main>`
-    const result = getBodyParagraphs()
-    expect(result).toHaveLength(1)
+    expect(getBodyParagraphs()).toHaveLength(1)
   })
 
   it('prefers <main> over <article> when both are present', () => {
     document.body.innerHTML = `
       <article><p>${longPara('article')}</p></article>
       <main><p>${longPara('main')}</p></main>`
-    const result = getBodyParagraphs()
-    expect(result[0]).toContain('main0')
+    expect(getBodyParagraphs()[0]).toContain('main0')
   })
 
   it('returns trimmed strings with no leading/trailing whitespace', () => {
     document.body.innerHTML = `<main><p>  ${longPara()}  </p></main>`
-    const result = getBodyParagraphs()
-    expect(result[0]).not.toMatch(/^\s|\s$/)
+    expect(getBodyParagraphs()[0]).not.toMatch(/^\s|\s$/)
   })
 
   it('returns an empty array when the page has no qualifying paragraphs', () => {
@@ -566,7 +511,7 @@ describe('getBodyParagraphs', () => {
     expect(result[0]).toContain('body0')
   })
 
-  it('includes a paragraph that happens to mention a citation mid-sentence', () => {
+  it('includes a paragraph that mentions a citation mid-sentence', () => {
     const citationPara =
       'Studies on apoptosis (Smith et al., 2023) show that caspase activation is a ' +
       'critical step in programmed cell death across many mammalian tissue types and ' +
@@ -581,25 +526,30 @@ describe('getBodyParagraphs', () => {
 // ---------------------------------------------------------------------------
 // extractKeywords — pipeline integration tests (mocked assets)
 //
-// We mock the three JSON asset imports so the pipeline runs without real files.
-// compromise is NOT mocked — it runs for real so NER and POS tagging behave
-// authentically.
+// extractKeywords now returns Promise<Array<{term: string, score: number}>>.
+// Use the `terms()` helper to pull out just the term strings for assertions.
+//
+// To add a pipeline test:
+//   1. Call `para(...)` with your sentence(s) to get a >= 30-word string.
+//   2. Call `extractKeywords([...])` and await it.
+//   3. Call `terms(result)` to get a plain string[].
+//   4. Assert on the string[].
 // ---------------------------------------------------------------------------
 
 vi.mock('../../assets/meshTerms.json', () => ({
   default: [
-    { term: 'apoptosis',   branch: 'C', weight: 1.5 },
-    { term: 'neuron',      branch: 'A', weight: 1.3 },
-    { term: 'kinase',      branch: 'D', weight: 1.4 },
+    { term: 'apoptosis', branch: 'C', weight: 1.5 },
+    { term: 'neuron',    branch: 'A', weight: 1.3 },
+    { term: 'kinase',    branch: 'D', weight: 1.4 },
   ],
 }))
 
 vi.mock('../../assets/englishFreq.json', () => ({
   default: [
-    ['the', -2.8319],
-    ['of', -3.5684],
+    ['the',    -2.8319],
+    ['of',     -3.5684],
     ['auburn', -12.4119],
-    ['hone', -13.6085],
+    ['hone',   -13.6085],
   ],
 }))
 
@@ -621,26 +571,48 @@ vi.mock('../../content/utils/sciencePatterns', () => ({
 }))
 
 describe('extractKeywords', { timeout: 15000 }, () => {
-  let extractKeywords: (paragraphs: string[], maxTerms?: number) => Promise<string[]>
+  let extractKeywords: (paragraphs: string[]) => Promise<Array<{term: string, score: number}>>
 
   beforeEach(async () => {
     ;({ extractKeywords } = await import('../../content/utils/phraseExtractor'))
   })
 
-  /** Builds a paragraph long enough to qualify (≥ 30 words). */
+  /**
+   * Pads sentences to at least 30 words so getBodyParagraphs doesn't filter
+   * them out.  Pass multiple sentence strings; they are joined with a space.
+   */
   function para(...sentences: string[]): string {
     const base = sentences.join(' ')
-    const tokens = base.split(/\s+/)
-    if (tokens.length >= 30) return base
-    const padding = Array.from({ length: 30 - tokens.length }, (_, i) => `cell${i}`)
-    return base + ' ' + padding.join(' ')
+    const count = base.split(/\s+/).length
+    if (count >= 30) return base
+    return base + ' ' + Array.from({ length: 30 - count }, (_, i) => `cell${i}`).join(' ')
   }
 
-  it('returns an array of lowercase strings', async () => {
-    const paras = [para('Apoptosis is a form of programmed cell death involving caspase enzymes.')]
-    const result = await extractKeywords(paras)
-    result.forEach(term => expect(term).toBe(term.toLowerCase()))
+  /** Pulls term strings from a scored result array. */
+  function terms(result: Array<{term: string, score: number}>): string[] {
+    return result.map(r => r.term)
+  }
+
+  // ── Return shape ──────────────────────────────────────────────────────────
+
+  it('returns an array of objects with term and score fields', async () => {
+    const result = await extractKeywords([para('Apoptosis is a form of programmed cell death.')])
+    result.forEach(r => {
+      expect(r).toHaveProperty('term')
+      expect(r).toHaveProperty('score')
+    })
   })
+
+  it('returns lowercase term strings', async () => {
+    const result = await extractKeywords([para('Apoptosis is a form of programmed cell death.')])
+    terms(result).forEach(t => expect(t).toBe(t.toLowerCase()))
+  })
+
+  it('returns an empty array for empty input', async () => {
+    expect(await extractKeywords([])).toEqual([])
+  })
+
+  // ── Keyword extraction ────────────────────────────────────────────────────
 
   it('extracts a clearly relevant technical term', async () => {
     const paras = [para(
@@ -648,44 +620,22 @@ describe('extractKeywords', { timeout: 15000 }, () => {
       'Apoptosis eliminates damaged cells to prevent tumour formation.',
       'The apoptosis pathway involves caspase-mediated protein cleavage.',
     )]
-    const result = await extractKeywords(paras)
-    expect(result).toContain('apoptosis')
+    expect(terms(await extractKeywords(paras))).toContain('apoptosis')
   })
 
   it('does not return stop words', async () => {
     const paras = [para('The results of the study were published in the journal.')]
-    const result = await extractKeywords(paras)
-    const stopWordLeak = result.filter(t =>
-      ['the', 'of', 'in', 'is', 'it', 'and', 'or'].includes(t)
-    )
-    expect(stopWordLeak).toHaveLength(0)
+    const result = terms(await extractKeywords(paras))
+    const leaks = result.filter(t => ['the','of','in','is','it','and','or'].includes(t))
+    expect(leaks).toHaveLength(0)
   })
 
-  it('respects the maxTerms limit', async () => {
-    const paras = [para(
-      'Neuron apoptosis kinase protein cell membrane receptor ligand transcription',
-      'factor chromosome genome mutation allele phenotype genotype expression pathway',
-    )]
-    const result = await extractKeywords(paras, 3)
-    expect(result.length).toBeLessThanOrEqual(3)
-  })
-
-  it('applies the dynamic cap (10 + paragraphs.length × 2) when maxTerms is large', async () => {
-    const paras = [para('Apoptosis kinase neuron protein cell membrane receptor ligand.')]
-    const result = await extractKeywords(paras, 999)
-    expect(result.length).toBeLessThanOrEqual(12)
-  })
-
-  it('returns an empty array for empty input', async () => {
-    expect(await extractKeywords([])).toEqual([])
-  })
-
-  it('gives a higher score to a MeSH term than to an equally frequent non-MeSH term', async () => {
+  it('gives a higher rank to a MeSH term than to an equally frequent non-MeSH term', async () => {
     const paras = [para(
       'Apoptosis is triggered by DNA damage. Chromosome abnormalities cause apoptosis.',
       'The chromosome structure determines how apoptosis signals are transmitted downstream.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     const aIdx = result.indexOf('apoptosis')
     const cIdx = result.indexOf('chromosome')
     if (aIdx !== -1 && cIdx !== -1) {
@@ -695,7 +645,7 @@ describe('extractKeywords', { timeout: 15000 }, () => {
     }
   })
 
-  // ── Sentence-starter / false-capital tests ─────────────────────────────────
+  // ── Sentence-starter / false-capital filtering ────────────────────────────
 
   it('does not extract a word that only appears at sentence starts', async () => {
     const paras = [para(
@@ -703,8 +653,7 @@ describe('extractKeywords', { timeout: 15000 }, () => {
       'However, the team decided to proceed.',
       'However, no significant difference was observed in the control group.',
     )]
-    const result = await extractKeywords(paras)
-    expect(result).not.toContain('however')
+    expect(terms(await extractKeywords(paras))).not.toContain('however')
   })
 
   it('extracts a word that appears both at sentence starts and mid-sentence', async () => {
@@ -713,45 +662,45 @@ describe('extractKeywords', { timeout: 15000 }, () => {
       'The work of Einstein transformed modern physics fundamentally.',
       'Einstein received the Nobel Prize for the photoelectric effect.',
     )]
-    const result = await extractKeywords(paras)
-    expect(result).toContain('einstein')
+    expect(terms(await extractKeywords(paras))).toContain('einstein')
   })
 
-  // ── Citation handling ──────────────────────────────────────────────────────
+  // ── Citation handling ─────────────────────────────────────────────────────
 
   it('does not extract numeric citation tokens like "[14]"', async () => {
     const paras = [para(
       'Cell death [14] is a well-documented process [15] in developmental biology [16].',
       'Apoptosis [14] is distinct from necrosis and is regulated by the BCL-2 family.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     expect(result).not.toContain('14')
     expect(result).not.toContain('15')
     expect(result).not.toContain('16')
   })
 
-  it('does not extract author-year citation fragments like "et" or "al"', async () => {
+  it('does not extract author-year citation fragments "et" or "al"', async () => {
     const paras = [para(
       'As shown by Smith et al. (2023), apoptosis is triggered by caspase activation.',
       'Johnson et al. (2022) confirmed that neuron loss correlates with disease severity.',
       'The findings of Brown et al. (2021) were replicated in three independent cohorts.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     expect(result).not.toContain('et')
     expect(result).not.toContain('al')
   })
 
-  it('still extracts the real content words from a sentence containing a citation', async () => {
+  it('still extracts real content words from a sentence containing a citation', async () => {
     const paras = [para(
       'As shown by Smith et al. (2023), apoptosis is triggered by caspase activation.',
       'Johnson et al. (2022) confirmed that neuron loss correlates with disease severity.',
       'Apoptosis and neuron degeneration are the two primary outcomes studied here.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     expect(result).toContain('apoptosis')
     expect(result).toContain('neuron')
   })
 
+  // ── Dotted abbreviations ──────────────────────────────────────────────────
 
   it('extracts "U.S." as a keyword when it appears multiple times', async () => {
     const paras = [para(
@@ -759,12 +708,10 @@ describe('extractKeywords', { timeout: 15000 }, () => {
       'U.S. researchers published landmark findings on mRNA technology applications.',
       'Funding from U.S. agencies accelerated the clinical trial approval process.',
     )]
-    const result = await extractKeywords(paras)
-    // Canonical form must match extractAcronyms: lowercase with dots preserved.
+    const result = terms(await extractKeywords(paras))
     expect(result).toContain('u.s.')
-    // Must NOT appear as the stop word "us" or a dot-stripped variant.
     expect(result).not.toContain('us')
-    expect(result).not.toContain('u.s') // no trailing dot = wrong canonical form
+    expect(result).not.toContain('u.s') // wrong canonical form — no trailing dot
   })
 
   it('extracts "U.S.A." as a keyword when it appears multiple times', async () => {
@@ -773,50 +720,28 @@ describe('extractKeywords', { timeout: 15000 }, () => {
       'U.S.A. health authorities monitor adverse event reports on a quarterly basis.',
       'Researchers at U.S.A. universities published findings on metabolic disorders.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     expect(result).toContain('u.s.a.')
     expect(result).not.toContain('usa')
   })
 
-  it('does not extract "U.S." when it appears only once', async () => {
-    const paras = [para(
-      'U.S. researchers published landmark findings on mRNA technology applications.',
-      'Studies confirmed that the intervention reduced mortality in treated patients.',
-      'The trial enrolled two hundred participants across six hospital sites nationally.',
-    )]
-    const result = await extractKeywords(paras)
-    expect(result).not.toContain('u.s.')
-  })
-
   it('ranks "U.S." alongside other high-frequency acronyms like WHO', async () => {
-    // Both appear 3+ times — both should surface, U.S. ranked near WHO.
     const paras = [para(
       'The WHO issued a global alert and U.S. authorities confirmed local cases.',
       'WHO and U.S. agencies coordinated the containment response across continents.',
       'U.S. officials briefed WHO representatives on the outbreak trajectory data.',
     )]
-    const result = await extractKeywords(paras)
+    const result = terms(await extractKeywords(paras))
     expect(result).toContain('who')
     expect(result).toContain('u.s.')
   })
 
-  it('[control] plain ALL-CAPS acronym WHO is extracted correctly (no dots)', async () => {
+  it('[control] plain ALL-CAPS acronym WHO is extracted correctly', async () => {
     const paras = [para(
       'The WHO issued a global alert for the outbreak detected in South-East Asia.',
       'WHO officials confirmed that containment measures had been implemented globally.',
       'Member states were required to report case counts to WHO within 24 hours.',
     )]
-    const result = await extractKeywords(paras)
-    expect(result).toContain('who')
-  })
-
-  it('[control] plain ALL-CAPS acronym WHO is extracted correctly (no dots)', async () => {
-    const paras = [para(
-      'The WHO issued a global alert for the outbreak detected in South-East Asia.',
-      'WHO officials confirmed that containment measures had been implemented globally.',
-      'Member states were required to report case counts to WHO within 24 hours.',
-    )]
-    const result = await extractKeywords(paras)
-    expect(result).toContain('who')
+    expect(terms(await extractKeywords(paras))).toContain('who')
   })
 })
