@@ -8,7 +8,7 @@
     "docs": "typedoc --out docs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "vitest run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "worker:dev": "wrangler dev --config workers/report-relay/wrangler.toml",
@@ -27,6 +27,7 @@
     "@crxjs/vite-plugin": "^2.7.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/adm-zip": "^0.5.8",
     "@types/chrome": "^0.1.37",
     "@types/node": "^25.8.0",
@@ -34,17 +35,14 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^4.1.9",
-    "@vitest/ui": "^4.1.7",
-    "adm-zip": "^0.5.17",
+    "@vitest/ui": "^4.1.9",
+    "adm-zip": "^0.6.0",
     "jsdom": "^29.1.1",
     "typedoc": "^0.28.19",
     "typescript": "~5.9.3",
-    "vite": "^5.4.21",
+    "vite": "^6.0.0",
     "vite-plugin-zip-pack": "^1.2.4",
     "vitest": "^4.1.9",
     "wrangler": "^4.0.0"
-  },
-  "overrides": {
-    "vite": "^6.0.0"
   }
 }
