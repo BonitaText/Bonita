@@ -18,9 +18,9 @@
  * Identifiers for every reading tool that can be shown or hidden in the
  * toolbar dock via {@link BonitaSettings.enabledTools}.
  *
- * Deliberately mirrors the popup's `featureToggles` list (minus `font`,
- * which has no visibility checkbox in the popup and is always shown in the
- * dock via `FontSelector`).
+ * Mirrors the popup's `featureToggles` list, including `font`: the font
+ * picker has its own visibility checkbox in the popup, just like every
+ * other tool, and is skipped in the on-page dock when its flag is `false`.
  */
 export type ToolId =
   | 'sentenceSplitting'
@@ -29,6 +29,7 @@ export type ToolId =
   | 'pos'
   | 'lineFocus'
   | 'tts'
+  | 'font'
 
 /**
  * Complete settings object for the Bonita reading-tools overlay.
@@ -50,8 +51,8 @@ export interface BonitaSettings {
    * entirely absent from the dock — not merely disabled or greyed out — so
    * the dock only ever shows tools the user has opted into seeing.
    *
-   * `font` has no entry: {@link FontSelector} has no corresponding popup
-   * checkbox and is always shown in the dock.
+   * Includes `font`: {@link FontSelector} has a popup checkbox like every
+   * other tool and is hidden from the dock when its flag is `false`.
    */
   enabledTools: Record<ToolId, boolean>
 
@@ -137,6 +138,7 @@ const defaultEnabledTools: Record<ToolId, boolean> = {
   pos: true,
   lineFocus: true,
   tts: true,
+  font: true,
 }
 
 /**

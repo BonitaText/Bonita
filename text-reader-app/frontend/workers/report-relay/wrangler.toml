@@ -1,0 +1,20 @@
+name = "bonita-report-relay"
+main = "worker.ts"
+compatibility_date = "2026-07-30"
+
+# KV namespace used for the per-IP rate limit in worker.js.
+# Create it with: wrangler kv namespace create RATE_LIMIT_KV
+# then paste the returned "id" (and "preview_id" for local dev) below.
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "de5cc222b7d142f2aad90b817d6166c6"
+preview_id = "REPLACE_WITH_KV_PREVIEW_NAMESPACE_ID"
+
+# GITHUB_TOKEN is a secret, not a var — never put it here in plaintext.
+# Set it with: wrangler secret put GITHUB_TOKEN
+
+[vars]
+# Once you know your extension's origin (chrome-extension://<id>), set it
+# here to lock CORS down instead of allowing "*". Leave commented out while
+# you're still testing with curl.
+# ALLOWED_ORIGIN = "chrome-extension://your-extension-id-here"
