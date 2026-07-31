@@ -23,12 +23,8 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-<<<<<<< Updated upstream
-    "@crxjs/vite-plugin": "^2.4.0",
-=======
     "@cloudflare/workers-types": "^5.0.0",
     "@crxjs/vite-plugin": "^2.7.0",
->>>>>>> Stashed changes
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/adm-zip": "^0.5.8",
@@ -45,14 +41,10 @@
     "typescript": "~5.9.3",
     "vite": "^5.4.21",
     "vite-plugin-zip-pack": "^1.2.4",
-<<<<<<< Updated upstream
-    "vitest": "^4.1.9"
-=======
     "vitest": "^4.1.9",
     "wrangler": "^4.0.0"
   },
   "overrides": {
     "vite": "^6.0.0"
->>>>>>> Stashed changes
   }
 }
