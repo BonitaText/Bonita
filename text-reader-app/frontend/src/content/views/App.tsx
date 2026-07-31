@@ -51,25 +51,37 @@
  * a time.  `openPopup` tracks the active one; `togglePopup` closes it when the
  * same button is pressed again or opens a new one (closing the previous).
  *
- * ## Trigger position
- * The trigger button's position is persisted to `sessionStorage` (via
- * {@link getTriggerPos} / {@link saveTriggerPos}) so it survives disable/re-enable
- * cycles within the same tab without jumping back to the default corner.
- * A `resize` listener re-clamps the position within the new viewport bounds
- * whenever the window is resized, split-screened, or fullscreened, preventing
- * the trigger from drifting off-screen.
+ * ## Trigger position (cross-tab, cross-site)
+ * The trigger button's position and tucked state are persisted to
+ * `chrome.storage.local` (via the `POS_KEY` reads/writes below), NOT
+ * `sessionStorage`. `chrome.storage.local` is shared across every open tab
+ * and every site the extension runs on, so:
+ * - Dragging the trigger on one page updates its position everywhere else,
+ *   live, via a `chrome.storage.onChanged` listener.
+ * - Tucking the trigger away on one page tucks it away on every other open
+ *   tab immediately, instead of only where you tucked it.
+ * This is a deliberate split from the per-site logic above: physical
+ * position/tuck state is a UI-chrome preference (belongs to "the browser"),
+ * while `siteEnabled` and `enabledTools` remain per-hostname/session so
+ * tools never silently activate somewhere you didn't opt in.
+ *
+ * Writes to `chrome.storage.local` only happen when a drag/tuck gesture
+ * settles (on mouseup), not on every drag frame, to avoid spamming every
+ * other tab with updates mid-drag. A `resize` listener re-clamps/re-pins the
+ * position within the new viewport bounds whenever the window is resized,
+ * split-screened, or fullscreened.
  *
  * ## Edge tucking
  * Dropping the trigger within {@link EDGE_SNAP_THRESHOLD}px of the left or
  * right edge on drag-release snaps it fully off-screen except for a
  * {@link TUCK_PEEK_LEFT}/{@link TUCK_PEEK_RIGHT}px sliver, per edge
- * (`pos.tuckedSide` tracks which edge). While
- * tucked, a plain click (not a drag) slides the trigger back to a fully
- * visible position instead of opening the dock — it stays there until the
- * user drags it near an edge again. The tucked side is persisted alongside
- * position so it survives reloads within the tab, and the `resize` listener
- * re-pins tucked triggers to their edge (rather than clamping them back
- * on-screen) whenever the viewport changes size.
+ * (`pos.tuckedSide` tracks which edge), and closes the dock if it was open.
+ * While tucked, a plain click (not a drag) slides the trigger back to a
+ * fully visible position instead of opening the dock — it stays there until
+ * the user drags it near an edge again. The tucked side is persisted
+ * alongside position so it survives reloads/new tabs, and the `resize`
+ * listener re-pins tucked triggers to their edge (rather than clamping them
+ * back on-screen) whenever the viewport changes size.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -119,7 +131,7 @@ const TUCK_PEEK_LEFT = 10
  */
 const TUCK_PEEK_RIGHT = 24
 
-// ─── sessionStorage helpers ───────────────────────────────────────────────────
+// ─── Storage helpers ────────────────────────────────────────────────────────
 
 /**
  * `sessionStorage` key for the per-hostname enabled map.
@@ -131,11 +143,13 @@ const TUCK_PEEK_RIGHT = 24
 const SESSION_KEY = 'bonita-site-enabled'
 
 /**
- * `sessionStorage` key for the trigger button's last known position.
+ * `chrome.storage.local` key for the trigger button's position + tuck state.
  *
- * The value is a JSON object: `{ left: number; top: number; tuckedSide: 'left' | 'right' | null }`.
- * Persisting to `sessionStorage` (rather than `chrome.storage`) keeps the
- * position tab-local and avoids unnecessary storage round-trips on every drag.
+ * Using `chrome.storage.local` (not `sessionStorage`) means position and
+ * tuck state are shared across every tab and every site — moving or tucking
+ * the trigger on one page updates it everywhere, live. The extension already
+ * has the `storage` permission (used by `chrome.storage.sync` in
+ * `useSettings`), so no manifest change is needed.
  */
 const POS_KEY = 'bonita-trigger-pos'
 
@@ -186,42 +200,6 @@ interface TriggerPos {
   top: number
   /** Which edge the trigger is tucked against, or `null` if not tucked. */
   tuckedSide: 'left' | 'right' | null
-}
-
-/**
- * Reads the last saved trigger position from `sessionStorage`.
- *
- * Returns `null` if no position has been saved yet (e.g. first visit), so the
- * caller can fall back to the default bottom-right corner position.
- *
- * @returns The saved `{ left, top, tuckedSide }` position, or `null` if absent.
- */
-function getTriggerPos(): TriggerPos | null {
-  try {
-    const raw = sessionStorage.getItem(POS_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return { left: parsed.left, top: parsed.top, tuckedSide: parsed.tuckedSide ?? null }
-  } catch {
-    return null
-  }
-}
-
-/**
- * Persists the trigger button's current position (and tucked state) to
- * `sessionStorage`.
- *
- * Called whenever the position changes so it survives disable/re-enable
- * cycles within the same tab without resetting to the default corner.
- *
- * @param pos - The `{ left, top, tuckedSide }` state to persist.
- */
-function saveTriggerPos(pos: TriggerPos): void {
-  try {
-    sessionStorage.setItem(POS_KEY, JSON.stringify(pos))
-  } catch {
-    // sessionStorage unavailable — fail silently
-  }
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -569,31 +547,25 @@ function App() {
    * Screen coordinates of the trigger button's top-left corner, plus which
    * edge (if any) it's currently tucked against.
    *
-   * Initialised from `sessionStorage` if a saved position exists (so the
-   * trigger stays where the user last dragged/tucked it across
-   * disable/re-enable cycles), falling back to the bottom-right viewport
-   * corner, untucked, with {@link DEFAULT_MARGIN} padding on first render.
-   * If the saved state was tucked, `left` is recomputed against the current
-   * viewport width rather than reused verbatim, since the window may have
-   * been resized since the value was saved.
+   * Starts at the default bottom-right corner, untucked; the real saved
+   * value (if any) is applied once the initial `chrome.storage.local` read
+   * resolves, via `applySavedPos` below. We can't read `chrome.storage`
+   * synchronously the way `sessionStorage` could be read in the old
+   * lazy-initializer, so `posReady` gates the trigger's render to avoid a
+   * flash at the default corner before it jumps to the synced position.
    */
-  const [pos, setPos] = useState<TriggerPos>(() => {
-    const saved = getTriggerPos()
-    if (saved) {
-      if (saved.tuckedSide === 'left') {
-        return { left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: saved.top, tuckedSide: 'left' }
-      }
-      if (saved.tuckedSide === 'right') {
-        return { left: window.innerWidth - TUCK_PEEK_RIGHT, top: saved.top, tuckedSide: 'right' }
-      }
-      return { left: saved.left, top: saved.top, tuckedSide: null }
-    }
-    return {
-      left: window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN,
-      top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
-      tuckedSide: null,
-    }
+  const [pos, setPos] = useState<TriggerPos>({
+    left: window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN,
+    top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
+    tuckedSide: null,
   })
+
+  /**
+   * True once the initial `chrome.storage.local` read has resolved, so the
+   * trigger doesn't flash at the default corner before jumping to its saved
+   * (and possibly cross-tab-synced) position.
+   */
+  const [posReady, setPosReady] = useState(false)
 
   /**
    * Whether the trigger is actively being dragged right now.
@@ -606,6 +578,17 @@ function App() {
    * from React the same way it does for {@link Toggle}/{@link IconToggle}.
    */
   const [isDragging, setIsDragging] = useState(false)
+
+  /**
+   * Mirrors `isDragging` for use inside the `chrome.storage.onChanged`
+   * listener below. That listener's closure is set up once on mount, so it
+   * would otherwise see a stale `isDragging` value; the ref always reads
+   * current.
+   */
+  const isDraggingRef = useRef(false)
+  useEffect(() => {
+    isDraggingRef.current = isDragging
+  }, [isDragging])
 
   /**
    * Master per-site enabled flag.
@@ -644,16 +627,58 @@ function App() {
   const dockRef = useRef<HTMLDivElement>(null)
 
   /**
-   * Persists the trigger position (and tucked state) to `sessionStorage`
-   * whenever it changes.
+   * Applies a saved `{ left, top, tuckedSide }` to the live `pos` state.
    *
-   * This ensures the user's chosen position/tuck state survives
-   * disable/re-enable cycles within the same tab without resetting to the
-   * default corner.
+   * Recomputes `left` for tucked positions against the *current* viewport
+   * (rather than reusing the stored value verbatim), since the window may
+   * have been resized — or this may be a different tab/screen entirely —
+   * since the value was saved. Shared by both the initial load and the
+   * cross-tab sync listener below.
+   */
+  const applySavedPos = (saved: TriggerPos): void => {
+    if (saved.tuckedSide === 'left') {
+      setPos({ left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: saved.top, tuckedSide: 'left' })
+    } else if (saved.tuckedSide === 'right') {
+      setPos({ left: window.innerWidth - TUCK_PEEK_RIGHT, top: saved.top, tuckedSide: 'right' })
+    } else {
+      setPos({ left: saved.left, top: saved.top, tuckedSide: null })
+    }
+  }
+
+  /**
+   * Initial load: reads the trigger's saved position/tuck state from
+   * `chrome.storage.local` once on mount. Sets `posReady` regardless of
+   * whether a saved value existed, so the trigger always renders after this
+   * resolves (falling back to the default corner if nothing was saved yet).
    */
   useEffect(() => {
-    saveTriggerPos(pos)
-  }, [pos])
+    chrome.storage.local.get(POS_KEY, (result) => {
+      const saved = result[POS_KEY] as TriggerPos | undefined
+      if (saved) applySavedPos(saved)
+      setPosReady(true)
+    })
+  }, [])
+
+  /**
+   * Live cross-tab sync: when another tab drags or tucks its trigger, this
+   * tab's button jumps to match immediately, via `chrome.storage.onChanged`.
+   *
+   * Ignored while `isDragging` (checked through `isDraggingRef`) so an
+   * incoming update from another tab can't fight the user's own in-progress
+   * gesture in this tab.
+   */
+  useEffect(() => {
+    const onStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string,
+    ) => {
+      if (area !== 'local' || !changes[POS_KEY] || isDraggingRef.current) return
+      const saved = changes[POS_KEY].newValue as TriggerPos | undefined
+      if (saved) applySavedPos(saved)
+    }
+    chrome.storage.onChanged.addListener(onStorageChange)
+    return () => chrome.storage.onChanged.removeListener(onStorageChange)
+  }, [])
 
   /**
    * Re-clamps the trigger position within the viewport on resize.
@@ -663,6 +688,10 @@ function App() {
    * viewport width) rather than clamped like a normal position, since
    * clamping would pull it back fully on-screen. An untucked trigger snaps
    * to the nearest valid in-bounds position instead of drifting off-screen.
+   *
+   * Note this only updates local `pos` state, not `chrome.storage.local` —
+   * a resize in one tab shouldn't relocate the trigger in every other tab,
+   * since each tab/window can have a different viewport size.
    */
   useEffect(() => {
     const onResize = () => {
@@ -774,7 +803,8 @@ function App() {
    * `wasTuckedSide` is an explicit snapshot of `pos.tuckedSide` taken at
    * `mousedown` — `onUp` reads from this rather than closing over `pos`
    * directly, so a click-to-untuck decision can't silently go stale if
-   * something else (e.g. a `resize`) updates `pos` mid-gesture.
+   * something else (e.g. a `resize`, or an incoming cross-tab sync) updates
+   * `pos` mid-gesture.
    */
   const dragStateRef = useRef({
     originLeft: 0,
@@ -797,8 +827,8 @@ function App() {
    *   `pos` live, clamped to keep the trigger fully within the viewport, and
    *   un-tucks it immediately so it follows the cursor normally. On release,
    *   dropping within {@link EDGE_SNAP_THRESHOLD}px of the left or right edge
-   *   snaps and tucks the trigger against that edge; otherwise it settles
-   *   wherever it was dropped.
+   *   snaps and tucks the trigger against that edge (and closes the dock if
+   *   it was open); otherwise it settles wherever it was dropped.
    * - `mouseup` without exceeding the threshold → click. If the trigger is
    *   currently tucked, this slides it back to a fully visible position
    *   (rather than opening the dock) and it stays there until dragged near
@@ -810,6 +840,10 @@ function App() {
    * transition — the transition still applies normally to the edge-snap on
    * release and the tap-to-untuck slide, since `isDragging` is `false` by
    * then.
+   *
+   * The settled position/tuck state is written to `chrome.storage.local`
+   * only here, on release — not on every drag frame — so other tabs aren't
+   * spammed with updates mid-drag and only see the final result.
    *
    * Global `mousemove` / `mouseup` listeners are attached for the duration of
    * the interaction and removed on `mouseup` to avoid leaking handlers.
@@ -872,7 +906,9 @@ function App() {
             s.wasTuckedSide === 'left'
               ? DEFAULT_MARGIN
               : window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN
-          setPos({ left: untuckedLeft, top: s.lastTop, tuckedSide: null })
+          const next: TriggerPos = { left: untuckedLeft, top: s.lastTop, tuckedSide: null }
+          setPos(next)
+          chrome.storage.local.set({ [POS_KEY]: next })
         } else {
           setOpen(o => !o)
         }
@@ -880,13 +916,18 @@ function App() {
       }
 
       // Drag ended — snap/tuck if dropped near an edge, otherwise settle in place.
+      let next: TriggerPos
       if (s.lastLeft < EDGE_SNAP_THRESHOLD) {
-        setPos({ left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: s.lastTop, tuckedSide: 'left' })
+        next = { left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: s.lastTop, tuckedSide: 'left' }
+        setOpen(false) // close the dock whenever the trigger tucks
       } else if (s.lastLeft > window.innerWidth - TRIGGER_SIZE - EDGE_SNAP_THRESHOLD) {
-        setPos({ left: window.innerWidth - TUCK_PEEK_RIGHT, top: s.lastTop, tuckedSide: 'right' })
+        next = { left: window.innerWidth - TUCK_PEEK_RIGHT, top: s.lastTop, tuckedSide: 'right' }
+        setOpen(false) // close the dock whenever the trigger tucks
       } else {
-        setPos({ left: s.lastLeft, top: s.lastTop, tuckedSide: null })
+        next = { left: s.lastLeft, top: s.lastTop, tuckedSide: null }
       }
+      setPos(next)
+      chrome.storage.local.set({ [POS_KEY]: next })
     }
 
     document.addEventListener('mousemove', onMove)
@@ -904,6 +945,12 @@ function App() {
 
   const dockLeft = pos.left - 6
   const dockBottom = window.innerHeight - (pos.top - 10)
+
+  // Don't render the trigger until the initial chrome.storage.local read has
+  // resolved — otherwise it would flash at the default corner for a frame
+  // before jumping to its saved/synced position.
+  if (!posReady) return <style>{styles}</style>
+
   return (
     <>
       <style>{styles}</style>

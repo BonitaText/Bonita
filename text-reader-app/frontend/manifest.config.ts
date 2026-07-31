@@ -21,6 +21,17 @@ export default defineManifest({
     'contentSettings',
     'storage',
   ],
+  // Required so the background worker's fetch() calls to these APIs bypass
+  // page-level CORS/CSP — content scripts can't do this on their own since
+  // they run inside the page's origin.
+  host_permissions: [
+    'https://api.datamuse.com/*',
+    'https://api.dictionaryapi.dev/*',
+  ],
+  background: {
+    service_worker: 'src/background/index.ts',
+    type: 'module',
+  },
   content_scripts: [{
     js: ['src/content/main.tsx'],
     matches: ['http://*/*', 'https://*/*'],
