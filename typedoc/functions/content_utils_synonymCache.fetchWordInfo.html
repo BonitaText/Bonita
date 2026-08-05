@@ -16,11 +16,11 @@
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="fetchwordinfo"><span class="tsd-kind-call-signature">fetchWordInfo</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">word</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">freq</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/content_utils_synonymCache.WordInfo.html" class="tsd-signature-type tsd-kind-interface">WordInfo</a><span class="tsd-signature-symbol">&gt;</span><a href="#fetchwordinfo" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Fetches synonyms and definitions for <code>word</code> from Datamuse and the Free
-Dictionary API in parallel, ranks every synonym candidate by complexity
-(simplest-first), and groups everything by part of speech.</p>
+<div class="tsd-comment tsd-typography"><p>Gets synonyms and definitions for <code>word</code>, ranks every synonym candidate by
+complexity (simplest-first), and groups everything by part of speech.</p>
 <p>Results are cached in memory for the lifetime of the page so repeated
-hovers on the same word incur no additional network requests.</p>
+hovers on the same word incur no additional messages to the background
+worker.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -36,7 +36,7 @@ real frequency data, not an empty map.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/content_utils_synonymCache.WordInfo.html" class="tsd-signature-type tsd-kind-interface">WordInfo</a><span class="tsd-signature-symbol">&gt;</span></h4><p>A <a href="../interfaces/content_utils_synonymCache.WordInfo.html" class="tsd-kind-interface">WordInfo</a> with per-POS entries, sorted non-noun-first.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/fb68406225a979bea71ca2887f7b5e4f1661e1f4/text-reader-app/frontend/src/content/utils/synonymCache.ts#L203">content/utils/synonymCache.ts:203</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/d7e15fef0dcb3de87ec9aa244c654fb2e7d4a6bc/text-reader-app/frontend/src/content/utils/synonymCache.ts#L145">content/utils/synonymCache.ts:145</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
