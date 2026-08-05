@@ -1,11 +1,25 @@
 /**
  * @file content/utils/synonymCache.ts
  *
- * Multi-source synonym + definition fetcher with quality-aware ranking.
+ * Complexity-aware synonym + definition ranking, driven by raw data fetched
+ * from the background service worker.
  *
- * ## Sources (fired in parallel)
- *   1. Datamuse `rel_syn`  — true synonyms (WordNet synset membership).
- *   2. Free Dictionary API — synonyms + definitions, both bucketed by POS.
+ * ## Why this doesn't fetch directly
+ * This module runs in the content script, which is injected into the page
+ * and is therefore subject to that page's CORS/CSP rules. Datamuse and Free
+ * Dictionary don't reliably return permissive CORS headers to arbitrary page
+ * origins, so cross-origin fetches from here can fail silently. Instead,
+ * `fetchWordInfo` sends a message to `background/index.ts`, which runs in
+ * the extension's privileged background context and has `host_permissions`
+ * for both APIs — its fetches bypass page-level CORS entirely.
+ *
+ * ## Division of responsibility with `background/index.ts`
+ * The background worker only fetches and structurally filters raw data (bad
+ * shapes, circular definitions, near-duplicate stems) — it has no access to
+ * the frequency map, which is content-script-local and too large to
+ * serialise on every hover. This module owns everything that needs that
+ * map: complexity ranking (simplest-first), diversity selection, and the
+ * in-memory hover cache.
  *
  * ## Core design: never discard, always rank
  * Synonym candidates are scored for complexity using the same
@@ -13,7 +27,8 @@
  * used to decide which words to underline. Per part of speech:
  *   - synonyms are sorted simplest-first
  *   - a definition is always produced per POS when available, unless it is
- *     circular (contains the headword itself as a whole-word match)
+ *     circular (contains the headword itself as a whole-word match) — that
+ *     filtering already happened in the background worker
  *
  * ## Capitalisation, not part-of-speech, gates suppression
  * Filtering out names, acronyms, and sentence-initial capitals is handled
@@ -21,6 +36,7 @@
  */
 
 import { scoreComplexity } from './wordSimplifier'
+import type { RawPosEntry } from '../../background/index'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +46,7 @@ export interface PosEntry {
   /** Synonyms for this POS, simplest-first. May be empty. */
   synonyms: string[]
   /**
-   * Definition for this POS, truncated to {@link DEF_MAX_CHARS}.
+   * Definition for this POS, truncated by the background worker.
    * `null` when no non-circular definition was available.
    */
   definition: string | null
@@ -46,113 +62,39 @@ export interface WordInfo {
   hasContent: boolean
 }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-/** Hard character cap for a single definition. */
-const DEF_MAX_CHARS = 200
+interface FetchWordInfoMessage {
+  type: 'FETCH_WORD_INFO'
+  word: string
+}
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
 
 const cache = new Map<string, WordInfo>()
 
-// ─── Datamuse ─────────────────────────────────────────────────────────────────
-
-interface DatamuseWord {
-  word: string
-  score?: number
-  tags?: string[]
-}
-
-async function datamuse(rel: string, word: string): Promise<DatamuseWord[]> {
-  try {
-    const res = await fetch(
-      `https://api.datamuse.com/words?${rel}=${encodeURIComponent(word)}&md=fp&max=30`,
-    )
-    if (!res.ok) return []
-    return (await res.json()) as DatamuseWord[]
-  } catch {
-    return []
-  }
-}
-
-/** Maps Datamuse short POS tags to the vocabulary used by Free Dictionary. */
-function datamusePos(tags: string[] | undefined): string {
-  if (!tags) return 'other'
-  if (tags.includes('n')) return 'noun'
-  if (tags.includes('v')) return 'verb'
-  if (tags.includes('adj')) return 'adjective'
-  if (tags.includes('adv')) return 'adverb'
-  return 'other'
-}
-
-// ─── Free Dictionary ──────────────────────────────────────────────────────────
-
-interface FDMeaning {
-  partOfSpeech: string
-  synonyms: string[]
-  definitions: Array<{ definition: string; synonyms?: string[] }>
-}
-
-interface FDEntry {
-  meanings: FDMeaning[]
-}
-
-async function freeDictionary(word: string): Promise<FDEntry[]> {
-  try {
-    const res = await fetch(
-      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
-    )
-    if (!res.ok) return []
-    return (await res.json()) as FDEntry[]
-  } catch {
-    return []
-  }
-}
-
-// ─── Shape filters ────────────────────────────────────────────────────────────
+// ─── Background messaging ────────────────────────────────────────────────────
 
 /**
- * Returns `true` when `candidate` is structurally unusable as a synonym —
- * not a complexity judgement. Rejects candidates that are:
- *   - too short (< 2 chars) or too long (> 20 chars)
- *   - identical to the original word
- *   - share the first 3 characters with the original (near-duplicate stem)
- *   - a substring of the original, or vice-versa (e.g. "caps" inside "capital")
- *   - a multi-word phrase of more than 2 tokens
+ * Asks the background service worker to fetch + structurally filter raw
+ * word data. Never throws — resolves to `[]` on any messaging failure (e.g.
+ * the background worker being asleep and failing to wake, or an extension
+ * reload invalidating the message port), matching the old fetch()'s
+ * fail-quiet behaviour.
  */
-function isStructurallyBad(candidate: string, original: string): boolean {
-  const c = candidate.toLowerCase().trim()
-  const o = original.toLowerCase()
-
-  if (c.length < 2 || c.length > 20) return true
-  if (c === o) return true
-
-  const prefixLen = 3
-  if (o.length >= prefixLen && c.length >= prefixLen && c.slice(0, prefixLen) === o.slice(0, prefixLen)) return true
-  if (c.includes(o) || o.includes(c)) return true
-  if (c.split(/\s+/).length > 2) return true
-
-  return false
-}
-
-/**
- * Returns `true` when the definition contains the lookup word as a whole-word
- * match, making it circular and therefore unhelpful to the reader.
- *
- * Only exact whole-word matches are treated as circular — shared stems are
- * not sufficient (e.g. "prefect" appearing in "prefecture"'s definition is
- * not circular).
- */
-function isCircularDef(text: string, key: string): boolean {
-  const lower = text.toLowerCase()
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`\\b${escaped}\\b`).test(lower)
-}
-
-function truncateDef(text: string, maxChars = DEF_MAX_CHARS): string {
-  if (text.length <= maxChars) return text
-  const cut = text.slice(0, maxChars).replace(/\s+\S*$/, '')
-  return cut + '…'
+function requestRawWordData(word: string): Promise<RawPosEntry[]> {
+  const message: FetchWordInfoMessage = { type: 'FETCH_WORD_INFO', word }
+  return new Promise(resolve => {
+    try {
+      chrome.runtime.sendMessage(message, (response: RawPosEntry[] | undefined) => {
+        if (chrome.runtime.lastError || !response) {
+          resolve([])
+          return
+        }
+        resolve(response)
+      })
+    } catch {
+      resolve([])
+    }
+  })
 }
 
 // ─── Synonym selection ────────────────────────────────────────────────────────
@@ -187,12 +129,12 @@ function diverseSynonyms(ranked: Array<{ word: string; score: number }>): string
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 /**
- * Fetches synonyms and definitions for `word` from Datamuse and the Free
- * Dictionary API in parallel, ranks every synonym candidate by complexity
- * (simplest-first), and groups everything by part of speech.
+ * Gets synonyms and definitions for `word`, ranks every synonym candidate by
+ * complexity (simplest-first), and groups everything by part of speech.
  *
  * Results are cached in memory for the lifetime of the page so repeated
- * hovers on the same word incur no additional network requests.
+ * hovers on the same word incur no additional messages to the background
+ * worker.
  *
  * @param word - Any casing; normalised to lower-case internally.
  * @param freq - The same English frequency map used by `scoreComplexity`
@@ -205,75 +147,32 @@ export async function fetchWordInfo(word: string, freq: Map<string, number>): Pr
   const cached = cache.get(key)
   if (cached) return cached
 
-  const [dmSyn, fdEntries] = await Promise.all([
-    datamuse('rel_syn', key),
-    freeDictionary(key),
-  ])
-
-  // ── Bucket everything by POS ─────────────────────────────────────────────
-  const buckets = new Map<string, { synonyms: Set<string>; definition: string | null }>()
-
-  function bucket(pos: string) {
-    let b = buckets.get(pos)
-    if (!b) {
-      b = { synonyms: new Set(), definition: null }
-      buckets.set(pos, b)
-    }
-    return b
-  }
-
-  // Datamuse rel_syn — POS-tagged
-  for (const w of dmSyn) {
-    const c = w.word.toLowerCase().trim()
-    if (isStructurallyBad(c, key)) continue
-    bucket(datamusePos(w.tags)).synonyms.add(c)
-  }
-
-  // Free Dictionary — synonyms + first non-circular definition per POS
-  for (const entry of fdEntries) {
-    for (const meaning of entry.meanings ?? []) {
-      const pos = (meaning.partOfSpeech ?? 'other').toLowerCase()
-      const b = bucket(pos)
-
-      const meaningSyns: string[] = meaning.synonyms ?? []
-      for (const def of meaning.definitions ?? []) {
-        const candidates = [...(def.synonyms ?? []), ...meaningSyns]
-        for (const s of candidates) {
-          const c = s.toLowerCase().trim()
-          if (!c || isStructurallyBad(c, key)) continue
-          b.synonyms.add(c)
-        }
-
-        if (b.definition === null && def.definition && !isCircularDef(def.definition, key)) {
-          b.definition = truncateDef(def.definition)
-        }
-      }
-    }
-  }
+  const rawEntries = await requestRawWordData(key)
 
   // ── Rank synonyms per POS by complexity, simplest-first ──────────────────
-  const entries: PosEntry[] = []
-  for (const [pos, b] of buckets.entries()) {
-    const ranked = [...b.synonyms]
+  const entries: PosEntry[] = rawEntries.map(raw => {
+    const ranked = raw.synonyms
       .map(w => ({ word: w, score: scoreComplexity(w, freq) }))
-      .sort((a, b2) => a.score - b2.score)
+      .sort((a, b) => a.score - b.score)
 
-    entries.push({
-      pos,
+    return {
+      pos: raw.pos,
       synonyms: diverseSynonyms(ranked),
-      definition: b.definition,
-    })
-  }
+      definition: raw.definition,
+    }
+  })
 
   // Non-noun POS first; noun/proper-noun last
-  entries.sort((a, b2) => {
+  entries.sort((a, b) => {
     const aNoun = a.pos === 'noun' || a.pos === 'proper noun'
-    const bNoun = b2.pos === 'noun' || b2.pos === 'proper noun'
+    const bNoun = b.pos === 'noun' || b.pos === 'proper noun'
     if (aNoun === bNoun) return 0
     return aNoun ? 1 : -1
   })
 
   // Drop POS buckets that ended up with no synonyms and no definition
+  // (diversity selection can theoretically zero out synonyms; definition
+  // presence alone still keeps a bucket alive)
   const nonEmptyEntries = entries.filter(e => e.synonyms.length > 0 || e.definition !== null)
 
   const info: WordInfo = {
