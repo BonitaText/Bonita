@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Bold } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 
@@ -12,11 +13,17 @@ interface PhraseBoldingProps {
   open: boolean
 
   /**
-   * Callback to toggle the popup open/closed.
-   * Called on every button click — parent handles the open/close logic
-   * via `setOpenPopup(prev => prev === name ? null : name)`.
+   * Called on hover-in (while the tool is enabled) to request the popup open.
+   * Independent of the enable/disable click.
    */
-  onOpen: () => void
+  onShow: () => void
+
+  /**
+   * Called on hover-out (after a short grace period, so moving from the
+   * button into the popup doesn't flicker-close it) to request the popup
+   * close.
+   */
+  onHide: () => void
 }
 
 /**
@@ -25,8 +32,12 @@ interface PhraseBoldingProps {
  * Dock button that toggles keyword bolding on the host page.
  *
  * Behaviour:
- * - Clicking the button toggles `settings.keywordBolding` on/off and
- *   simultaneously opens/closes the configuration popup via `onOpen`.
+ * - Clicking the button toggles `settings.keywordBolding` on/off. This is
+ *   independent of the popup — clicking does not open or close it.
+ * - Hovering the button (while bolding is enabled) opens the configuration
+ *   popup via `onShow`; moving the mouse away from both the button and the
+ *   popup closes it via `onHide`, after a short delay so crossing from the
+ *   button into the popup doesn't close it prematurely.
  * - The button renders with the `active` class while bolding is enabled.
  * - The popup exposes:
  *   - A range slider for `settings.boldThresholdPercent` (how many keywords to bold).
@@ -36,7 +47,7 @@ interface PhraseBoldingProps {
  *     the CSS custom property `--bonita-bold-color` so `phraseBolder.ts` can
  *     read it without importing React state.
  */
-export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
+export default function PhraseBolding({ open, onShow, onHide }: PhraseBoldingProps) {
   const { settings, updateSetting } = useSettings()
   
   /** Whether keyword bolding is currently active. */
@@ -47,20 +58,40 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
   
   /** Current bold colour as a hex string, defaulting to deep purple. */
   const boldColor = settings.boldColor ?? '#3e236b'
-  
 
+  /** Pending hide timeout, so leaving the button and re-entering the popup can cancel it. */
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHide = (): void => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+
+  const scheduleHide = (): void => {
+    cancelHide()
+    hideTimerRef.current = setTimeout(() => onHide(), 150)
+  }
 
   // Inject the CSS variable onto :root so phraseBolder.ts picks it up
   document.documentElement.style.setProperty('--bonita-bold-color', boldColor)
   
   return (
-    <div className="bonita-font-wrapper">
+    <div
+      className="bonita-font-wrapper"
+      onMouseEnter={() => {
+        if (enabled) {
+          cancelHide()
+          onShow()
+        }
+      }}
+      onMouseLeave={scheduleHide}
+    >
       <button
         className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
         onClick={() => {
-          const next = !enabled
           updateSetting('keywordBolding', !enabled)
-          if (next !== open) onOpen()
         }}
         data-tooltip="Phrase Bolding"
         aria-label="Phrase Bolding"
@@ -69,7 +100,12 @@ export default function PhraseBolding({ open, onOpen }: PhraseBoldingProps) {
       </button>
 
       {open && (
-        <div className="bonita-font-popup" style={{ minWidth: 176 }}>
+        <div
+          className="bonita-font-popup"
+          style={{ minWidth: 176 }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+        >
           {/* ── Keyword count header ── */}
           <div style={{
             padding: '6px 10px 4px',

@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Palette } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 
@@ -9,21 +10,30 @@ import { useSettings } from '../hooks/useSettings'
  * toggle button that opens an inline popup listing highlightable POS categories
  * (verbs, nouns, adjectives), each independently togglable with a colour swatch.
  *
- * The button appears `active` when at least one POS category is enabled.
+ * The button appears `active` whenever the tool has been toggled on — this is
+ * tracked independently of whether any individual category is selected, so
+ * clicking the button on immediately reveals the popup on hover even before
+ * the user picks a category.
  */
 interface POSHighlightProps {
   /**
    * Whether the configuration popup is currently open.
-   * Controlled by the parent via `togglePopup('pos')`.
+   * Controlled by the parent.
    */
   open: boolean
 
   /**
-   * Callback to toggle the popup open/closed.
-   * Called on every button click — parent handles the open/close logic
-   * via `setOpenPopup(prev => prev === name ? null : name)`.
+   * Called on hover-in, only while the tool is toggled on, to request the
+   * popup open. Independent of the enable/disable click.
    */
-  onOpen: () => void
+  onShow: () => void
+
+  /**
+   * Called on hover-out (after a short grace period, so moving from the
+   * button into the popup doesn't flicker-close it) to request the popup
+   * close.
+   */
+  onHide: () => void
 }
 
 const styles = `
@@ -92,14 +102,22 @@ const items: { key: 'verbs' | 'nouns' | 'adjectives'; label: string }[] = [
  * Dock button that toggles part-of-speech highlighting on the host page.
  *
  * Behaviour:
- * - Clicking the dock button opens/closes the popup via `onOpen`.
- * - The button renders with the `active` class when at least one POS
- *   category (`verbs`, `nouns`, or `adjectives`) is enabled — `anyOn`.
+ * - Clicking the button toggles a local "tool enabled" state on/off,
+ *   independent of which categories are selected. This is what drives the
+ *   `active` class and gates the hover popup — matching the click-toggles/
+ *   hover-reveals pattern used by the other dock tools.
+ * - Turning the tool off also clears all selected categories
+ *   (`settings.posEnabled`), so highlighting actually stops rather than
+ *   just hiding the button state.
+ * - Hovering the button, while the tool is enabled, opens the popup via
+ *   `onShow`; moving the mouse away from both the button and the popup
+ *   closes it via `onHide`, after a short delay so crossing from the
+ *   button into the popup doesn't close it prematurely.
  * - Inside the popup each row independently toggles its POS category
  *   and shows a colour swatch sourced from `settings.posColors[key]`.
  * - A checkmark (✓) is visible on rows whose category is currently on.
  */
-export default function POSHighlight({ open, onOpen }: POSHighlightProps) {
+export default function POSHighlight({ open, onShow, onHide }: POSHighlightProps) {
   const { settings, updateSetting } = useSettings()
 
   /**
@@ -107,12 +125,29 @@ export default function POSHighlight({ open, onOpen }: POSHighlightProps) {
    * if the setting has never been written.
    */
   const posEnabled = settings.posEnabled ?? { verbs: false, nouns: false, adjectives: false }
-  
+
   /**
-   * True when at least one POS category is active.
-   * Drives the `active` class on the dock button.
+   * Whether the tool has been toggled on via the main button — independent
+   * of which categories (if any) are currently selected. Drives the
+   * `active` class and gates the hover-popup, matching the other dock
+   * tools' click-toggles/hover-reveals pattern.
    */
-  const anyOn = posEnabled.verbs || posEnabled.nouns || posEnabled.adjectives
+  const [enabled, setEnabled] = useState(false)
+
+  /** Pending hide timeout, so leaving the button and re-entering the popup can cancel it. */
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHide = (): void => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+
+  const scheduleHide = (): void => {
+    cancelHide()
+    hideTimerRef.current = setTimeout(() => onHide(), 150)
+  }
 
   /**
    * Flips a single POS category on or off while preserving the others.
@@ -127,18 +162,41 @@ export default function POSHighlight({ open, onOpen }: POSHighlightProps) {
   }
 
   return (
-    <div className="bonita-font-wrapper">
+    <div
+      className="bonita-font-wrapper"
+      onMouseEnter={() => {
+        if (enabled) {
+          cancelHide()
+          onShow()
+        }
+      }}
+      onMouseLeave={scheduleHide}
+    >
       <style>{styles}</style>
       <button
-        className={`bonita-icon-btn ${anyOn ? 'active' : ''}`}
-        onClick={onOpen}
+        className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
+        onClick={() => {
+          const next = !enabled
+          setEnabled(next)
+          if (!next) {
+            // Turning the tool off stops highlighting entirely, rather than
+            // leaving stale categories selected underneath.
+            updateSetting('posEnabled', { verbs: false, nouns: false, adjectives: false })
+            cancelHide()
+            onHide()
+          }
+        }}
         data-tooltip="POS Highlighting"
         aria-label="POS Highlighting"
       >
         <Palette size={20} strokeWidth={1.8} />
       </button>
-      {open && (
-        <div className="bonita-pos-popup">
+      {open && enabled && (
+        <div
+          className="bonita-pos-popup"
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+        >
           {items.map((item) => (
             <button
               key={item.key}

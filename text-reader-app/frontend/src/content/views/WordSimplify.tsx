@@ -1,26 +1,35 @@
+import { useRef } from 'react'
 import { BookOpen } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 
 /**
  * Props for the WordSimplify component.
  *
- * Controls word-simplification on the page. The dock button has a
- * two-step interaction: the first click turns the feature on, and only
- * once it's on do subsequent clicks open the popup for choosing a
- * complexity level (`low` / `medium` / `high`).
+ * Controls word-simplification on the page. The dock button's click turns
+ * the feature on/off; hovering the button (while enabled) reveals the popup
+ * for choosing a complexity level (`low` / `medium` / `high`), independent
+ * of the click.
  */
 interface WordSimplifyProps {
   /**
    * Whether the configuration popup is currently open.
-   * Controlled by the parent via `togglePopup('wordSimplify')`.
+   * Controlled by the parent.
    */
   open: boolean
 
   /**
-   * Callback to open the popup. Only invoked when word simplification is
-   * already enabled — see the component-level behaviour notes.
+   * Called on hover-in, only while word simplification is enabled, to
+   * request the popup open. Independent of the enable/disable click.
    */
-  onOpen: () => void
+  onShow: () => void
+
+  /**
+   * Called on hover-out (after a short grace period, so moving from the
+   * button into the popup doesn't flicker-close it) to request the popup
+   * close. Also called when the user turns simplification off from inside
+   * the popup, since the popup has nothing left to show once disabled.
+   */
+  onHide: () => void
 }
 
 /**
@@ -41,34 +50,56 @@ const levels: { key: 'low' | 'medium' | 'high'; label: string; desc: string }[] 
  * the user pick how aggressive it should be.
  *
  * Behaviour:
- * - If `settings.wordSimplification` is off, clicking the dock button
- *   turns it on directly (`updateSetting('wordSimplification', true)`)
- *   and does **not** open the popup on that click.
- * - If it's already on, clicking the dock button instead calls `onOpen`
- *   to reveal the level picker.
+ * - Clicking the dock button toggles `settings.wordSimplification` on/off.
+ *   This is independent of the popup — clicking does not open or close it.
+ * - Hovering the button, while simplification is enabled, opens the level
+ *   picker via `onShow`; moving the mouse away from both the button and the
+ *   popup closes it via `onHide`, after a short delay so crossing from the
+ *   button into the popup doesn't close it prematurely.
  * - The popup itself only renders when both `open` is true **and**
- *   `settings.wordSimplification` is true — so closing the parent popup
- *   state alone, or turning simplification off, both hide it.
+ *   `settings.wordSimplification` is true — so turning simplification off
+ *   hides it even if `open` hasn't caught up yet.
  * - Selecting a level writes `wordComplexity`; a checkmark and filled
  *   dot mark the currently active level.
  * - A "Turn off" row at the bottom disables simplification entirely via
- *   `updateSetting('wordSimplification', false)`.
+ *   `updateSetting('wordSimplification', false)` and closes the popup.
  */
-export default function WordSimplify({ open, onOpen }: WordSimplifyProps) {
+export default function WordSimplify({ open, onShow, onHide }: WordSimplifyProps) {
   const { settings, updateSetting } = useSettings()
-  
+
+  /** Whether word simplification is currently active. */
+  const enabled = settings.wordSimplification
+
+  /** Pending hide timeout, so leaving the button and re-entering the popup can cancel it. */
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHide = (): void => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+
+  const scheduleHide = (): void => {
+    cancelHide()
+    hideTimerRef.current = setTimeout(() => onHide(), 150)
+  }
 
   return (
-    <div className="bonita-font-wrapper">
+    <div
+      className="bonita-font-wrapper"
+      onMouseEnter={() => {
+        if (enabled) {
+          cancelHide()
+          onShow()
+        }
+      }}
+      onMouseLeave={scheduleHide}
+    >
       <button
-        className={`bonita-icon-btn ${settings.wordSimplification ? 'active' : ''}`}
+        className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
         onClick={() => {
-          // First click enables if off; subsequent clicks open the popup
-          if (!settings.wordSimplification) {
-            updateSetting('wordSimplification', true)
-          } else {
-            onOpen()
-          }
+          updateSetting('wordSimplification', !enabled)
         }}
         data-tooltip="Word Simplification"
         aria-label="Word Simplification"
@@ -76,8 +107,12 @@ export default function WordSimplify({ open, onOpen }: WordSimplifyProps) {
         <BookOpen size={20} strokeWidth={1.8} />
       </button>
 
-      {open && settings.wordSimplification && (
-        <div className="bonita-pos-popup">
+      {open && enabled && (
+        <div
+          className="bonita-pos-popup"
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+        >
           {levels.map(({ key, label, desc }) => (
             <button
               key={key}
@@ -99,7 +134,11 @@ export default function WordSimplify({ open, onOpen }: WordSimplifyProps) {
           <div style={{ borderTop: '1px solid rgba(111,79,216,0.12)', margin: '4px 0' }} />
           <button
             className="bonita-pos-row"
-            onClick={() => updateSetting('wordSimplification', false)}
+            onClick={() => {
+              updateSetting('wordSimplification', false)
+              cancelHide()
+              onHide()
+            }}
             style={{ color: '#9678D3' }}
           >
             Turn off
