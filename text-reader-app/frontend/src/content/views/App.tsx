@@ -48,8 +48,11 @@
  *
  * ## Popup management
  * At most one tool popup (bold options, POS options, font selector) is open at
- * a time.  `openPopup` tracks the active one; `togglePopup` closes it when the
- * same button is pressed again or opens a new one (closing the previous).
+ * a time.  `openPopup` tracks the active one. A tool's popup opens on hover
+ * (while the tool is enabled) via `showPopup`, and closes on hover-out via
+ * `hidePopup` — independent of the tool's own on/off click. Opening a new
+ * popup (via `showPopup`) implicitly replaces whichever was previously open,
+ * ensuring at most one is visible at any time.
  *
  * ## Trigger position (cross-tab, cross-site)
  * The trigger button's position and tucked state are persisted to
@@ -715,15 +718,29 @@ function App() {
   }, [])
 
   /**
-   * Toggles a named popup open or closed.
+   * Opens a named popup, replacing whichever popup was previously open.
    *
-   * Opening a new popup implicitly closes the previously open one, ensuring
-   * at most one popup is visible at any time.
+   * Called from a tool's `onMouseEnter` (while that tool is active), not
+   * from its on/off click — popup visibility is driven by hover, not by the
+   * enable/disable toggle.
    *
-   * @param name - The popup identifier to toggle.
+   * @param name - The popup identifier to show.
    */
-  const togglePopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity'): void =>
-    setOpenPopup(prev => (prev === name ? null : name))
+  const showPopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity'): void =>
+    setOpenPopup(name)
+
+  /**
+   * Closes a named popup, but only if it is the one currently open.
+   *
+   * Called from a tool's `onMouseLeave` (after a short grace period handled
+   * by the tool component itself). Guarding on `name` prevents a stale
+   * hide-timer from one tool closing a different tool's popup that opened
+   * in the meantime.
+   *
+   * @param name - The popup identifier to hide.
+   */
+  const hidePopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity'): void =>
+    setOpenPopup(prev => (prev === name ? null : prev))
 
   /**
    * Toggles the master site-enabled flag.
@@ -1033,25 +1050,29 @@ function App() {
           {toolVisible.keywordBolding && (
             <PhraseBolding
               open={openPopup === 'bold'}
-              onOpen={() => togglePopup('bold')}
+              onShow={() => showPopup('bold')}
+              onHide={() => hidePopup('bold')}
             />
           )}
           {toolVisible.pos && (
             <POSHighlight
               open={openPopup === 'pos'}
-              onOpen={() => togglePopup('pos')}
+              onShow={() => showPopup('pos')}
+              onHide={() => hidePopup('pos')}
             />
           )}
           {toolVisible.wordSimplification && (
             <WordSimplify
               open={openPopup === 'wordComplexity'}
-              onOpen={() => togglePopup('wordComplexity')}
+              onShow={() => showPopup('wordComplexity')}
+              onHide={() => hidePopup('wordComplexity')}
             />
           )}
           {toolVisible.lineFocus && (
             <LineFocusToggle
               open={openPopup === 'lineFocus'}
-              onOpen={() => togglePopup('lineFocus')}
+              onShow={() => showPopup('lineFocus')}
+              onHide={() => hidePopup('lineFocus')}
             />
           )}
           {toolVisible.tts && (
@@ -1062,7 +1083,8 @@ function App() {
           {toolVisible.font && (
             <FontSelector
               open={openPopup === 'font'}
-              onOpen={() => togglePopup('font')}
+              onShow={() => showPopup('font')}
+              onHide={() => hidePopup('font')}
             />
           )}
           </>

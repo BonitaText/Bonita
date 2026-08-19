@@ -6,10 +6,16 @@
  *
  * ## Popup behaviour
  * Follows the same pattern as {@link PhraseBolding}:
- * - The parent (`App`) owns which popup is open via `openPopup` / `togglePopup`.
- * - Clicking the button both toggles `settings.lineFocus` **and** calls
- *   `onOpen`, which the parent resolves to open/close this popup while
- *   closing any other open popup.
+ * - The parent (`App`) owns which popup is open via `openPopup` / `showPopup`
+ *   / `hidePopup`.
+ * - Clicking the button toggles `settings.lineFocus`, independent of the
+ *   popup, and also calls `onShow`/`onHide` directly for that same click —
+ *   since the mouse is already over the button at the moment of the click,
+ *   `onMouseEnter` won't fire again on its own.
+ * - Hovering the button (while line focus is enabled) opens the popup via
+ *   `onShow`; moving the mouse away from both the button and the popup
+ *   closes it via `onHide`, after a short grace period so crossing from the
+ *   button into the popup doesn't close it prematurely.
  * - The popup is rendered inside `.bonita-font-wrapper` so it shares the same
  *   `.bonita-font-popup` positioning styles already defined in `App.tsx`.
  *
@@ -24,6 +30,7 @@
  * on `:root` so `useLineFocusApplier` can read it without importing React state.
  */
 
+import { useRef } from 'react'
 import { ScanLine } from 'lucide-react'
 import { useSettings } from '../hooks/useSettings'
 import { useLineFocusApplier } from '../hooks/useLineFocusApplier'
@@ -51,20 +58,25 @@ export const LINE_FOCUS_DEFAULT_PX = 48
  * Props for the {@link LineFocusToggle} component.
  *
  * Mirrors the shape used by {@link PhraseBolding} so `App` can manage all
- * popups with a single `openPopup` state variable and a shared `togglePopup`
- * helper.
+ * popups with a single `openPopup` state variable and shared `showPopup` /
+ * `hidePopup` helpers.
  */
 export interface LineFocusToggleProps {
   /** Whether this component's popup is currently open. */
   open: boolean
 
   /**
-   * Callback fired when the user clicks the toggle button.
-   *
-   * The parent resolves open/close by comparing the incoming name with
-   * `openPopup`: same name closes, different name switches.
+   * Called on hover-in (while the tool is enabled) to request the popup
+   * open. Independent of the enable/disable click.
    */
-  onOpen: () => void
+  onShow: () => void
+
+  /**
+   * Called on hover-out (after a short grace period, so moving from the
+   * button into the popup doesn't flicker-close it) to request the popup
+   * close.
+   */
+  onHide: () => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -75,8 +87,15 @@ export interface LineFocusToggleProps {
  * Dock button that toggles line-focus mode on the host page.
  *
  * Behaviour:
- * - Clicking the button toggles `settings.lineFocus` on/off and simultaneously
- *   opens/closes the configuration popup via `onOpen`.
+ * - Clicking the button toggles `settings.lineFocus` on/off, and also calls
+ *   `onShow`/`onHide` directly for that same click — since the mouse is
+ *   already over the button at the moment of the click, `onMouseEnter`
+ *   won't fire again on its own, so without this the popup wouldn't appear
+ *   until the user moved away and hovered back in.
+ * - Hovering the button (while line focus is enabled) opens the popup via
+ *   `onShow`; moving the mouse away from both the button and the popup
+ *   closes it via `onHide`, after a short delay so crossing from the button
+ *   into the popup doesn't close it prematurely.
  * - The button renders with the `active` class while line focus is enabled.
  * - The popup exposes a range slider for `settings.lineFocusHeight` (px),
  *   clamped between {@link LINE_FOCUS_MIN_PX} and {@link LINE_FOCUS_MAX_PX}.
@@ -85,7 +104,7 @@ export interface LineFocusToggleProps {
  *
  * @param props - {@link LineFocusToggleProps}
  */
-export default function LineFocusToggle({ open, onOpen }: LineFocusToggleProps) {
+export default function LineFocusToggle({ open, onShow, onHide }: LineFocusToggleProps) {
   const { settings, updateSetting } = useSettings()
   useLineFocusApplier()
 
@@ -108,6 +127,21 @@ export default function LineFocusToggle({ open, onOpen }: LineFocusToggleProps) 
    */
   const clampedHeight = Math.min(Math.max(height, LINE_FOCUS_MIN_PX), LINE_FOCUS_MAX_PX)
 
+  /** Pending hide timeout, so leaving the button and re-entering the popup can cancel it. */
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHide = (): void => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+  }
+
+  const scheduleHide = (): void => {
+    cancelHide()
+    hideTimerRef.current = setTimeout(() => onHide(), 150)
+  }
+
   // Mirror the height onto :root so useLineFocusApplier can read it as a CSS var
   document.documentElement.style.setProperty(
     '--bonita-line-focus-height',
@@ -115,13 +149,27 @@ export default function LineFocusToggle({ open, onOpen }: LineFocusToggleProps) 
   )
 
   return (
-    <div className="bonita-font-wrapper">
+    <div
+      className="bonita-font-wrapper"
+      onMouseEnter={() => {
+        if (enabled) {
+          cancelHide()
+          onShow()
+        }
+      }}
+      onMouseLeave={scheduleHide}
+    >
       <button
         className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
         onClick={() => {
           const next = !enabled
           updateSetting('lineFocus', next)
-          if (next !== open) onOpen()
+          cancelHide()
+          // The mouse is already over the button on click, so onMouseEnter
+          // won't fire again on its own — show/hide the popup directly here
+          // too, in addition to the hover-based open/close for revisits.
+          if (next) onShow()
+          else onHide()
         }}
         data-tooltip="Line Focus"
         aria-label="Line Focus"
@@ -130,7 +178,12 @@ export default function LineFocusToggle({ open, onOpen }: LineFocusToggleProps) 
       </button>
 
       {open && (
-        <div className="bonita-font-popup" style={{ minWidth: 176 }}>
+        <div
+          className="bonita-font-popup"
+          style={{ minWidth: 176 }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+        >
           {/* ── Focus height header ── */}
           <div
             style={{

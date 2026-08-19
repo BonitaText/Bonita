@@ -5,7 +5,11 @@
  *
  * ## What is tested
  * - Rendering: button presence, correct aria attributes, no popup by default.
- * - Toggle behaviour: clicking enables/disables `lineFocus` and calls `onOpen`.
+ * - Toggle behaviour: clicking enables/disables `lineFocus` and calls
+ *   `onShow`/`onHide` directly (since hover-enter won't fire again on click).
+ * - Hover behaviour: `onShow` only fires on hover-in while enabled; `onHide`
+ *   fires after a delay on hover-out, and is cancelled if the mouse re-enters
+ *   the button or popup before the delay elapses.
  * - Popup: renders when `open` is `true`; absent when `open` is `false`.
  * - Slider: displays clamped height, fires `updateSetting` on change, shows live readout.
  * - CSS variable: `--bonita-line-focus-height` is written to `:root` on render.
@@ -18,7 +22,7 @@
  */
 
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import LineFocusToggle, {
   LINE_FOCUS_MIN_PX,
   LINE_FOCUS_MAX_PX,
@@ -54,11 +58,19 @@ vi.mock('../../content/hooks/useLineFocusApplier', () => ({
  *
  * @param overrides - Partial props to merge with the defaults.
  */
-function renderToggle(overrides: Partial<{ open: boolean; onOpen: () => void }> = {}) {
-  const onOpen = overrides.onOpen ?? vi.fn()
+function renderToggle(
+  overrides: Partial<{ open: boolean; onShow: () => void; onHide: () => void }> = {},
+) {
+  const onShow = overrides.onShow ?? vi.fn()
+  const onHide = overrides.onHide ?? vi.fn()
   const open = overrides.open ?? false
-  render(<LineFocusToggle open={open} onOpen={onOpen} />)
-  return { onOpen }
+  render(<LineFocusToggle open={open} onShow={onShow} onHide={onHide} />)
+  return { onShow, onHide }
+}
+
+/** Returns the `.bonita-font-wrapper` div — the hover target for the whole tool. */
+function getWrapper(): HTMLElement {
+  return document.querySelector('.bonita-font-wrapper') as HTMLElement
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -140,27 +152,80 @@ describe('LineFocusToggle', () => {
       expect(mockUpdateSetting).toHaveBeenCalledWith('lineFocus', false)
     })
 
-    it('calls onOpen when enabling and popup is currently closed', () => {
+    it('calls onShow directly when enabling, regardless of current open state', () => {
+      // The click handler calls onShow/onHide directly (not just via hover),
+      // since the mouse is already over the button and onMouseEnter won't
+      // fire again on its own.
       mockSettings.lineFocus = false
-      const { onOpen } = renderToggle({ open: false })
+      const { onShow, onHide } = renderToggle({ open: false })
       fireEvent.click(screen.getByRole('button', { name: 'Line Focus' }))
-      expect(onOpen).toHaveBeenCalledTimes(1)
+      expect(onShow).toHaveBeenCalledTimes(1)
+      expect(onHide).not.toHaveBeenCalled()
     })
 
-    it('does not call onOpen when enabling and popup is already open', () => {
-      // next = true, open = true → next === open, so onOpen should NOT be called
-      mockSettings.lineFocus = false
-      const { onOpen } = renderToggle({ open: true })
-      fireEvent.click(screen.getByRole('button', { name: 'Line Focus' }))
-      expect(onOpen).not.toHaveBeenCalled()
-    })
-
-    it('calls onOpen when disabling and popup is currently open', () => {
-      // next = false, open = true → next !== open → call onOpen
+    it('calls onHide directly when disabling, regardless of current open state', () => {
       mockSettings.lineFocus = true
-      const { onOpen } = renderToggle({ open: true })
+      const { onShow, onHide } = renderToggle({ open: true })
       fireEvent.click(screen.getByRole('button', { name: 'Line Focus' }))
-      expect(onOpen).toHaveBeenCalledTimes(1)
+      expect(onHide).toHaveBeenCalledTimes(1)
+      expect(onShow).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── Hover behaviour ────────────────────────────────────────────────────────
+
+  describe('hover behaviour', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+    })
+
+    it('calls onShow on hover-in when enabled', () => {
+      mockSettings.lineFocus = true
+      const { onShow } = renderToggle()
+      fireEvent.mouseEnter(getWrapper())
+      expect(onShow).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not call onShow on hover-in when disabled', () => {
+      mockSettings.lineFocus = false
+      const { onShow } = renderToggle()
+      fireEvent.mouseEnter(getWrapper())
+      expect(onShow).not.toHaveBeenCalled()
+    })
+
+    it('calls onHide after a delay on hover-out', () => {
+      mockSettings.lineFocus = true
+      const { onHide } = renderToggle({ open: true })
+      fireEvent.mouseLeave(getWrapper())
+      expect(onHide).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(150)
+      expect(onHide).toHaveBeenCalledTimes(1)
+    })
+
+    it('cancels the pending hide when the mouse re-enters before the delay elapses', () => {
+      mockSettings.lineFocus = true
+      const { onHide } = renderToggle({ open: true })
+      fireEvent.mouseLeave(getWrapper())
+      vi.advanceTimersByTime(50)
+      fireEvent.mouseEnter(getWrapper())
+      vi.advanceTimersByTime(150)
+      expect(onHide).not.toHaveBeenCalled()
+    })
+
+    it('cancels the pending hide when the mouse enters the popup', () => {
+      mockSettings.lineFocus = true
+      const { onHide } = renderToggle({ open: true })
+      fireEvent.mouseLeave(getWrapper())
+      vi.advanceTimersByTime(50)
+      const popup = screen.getByText(/focus height/i).closest('.bonita-font-popup') as HTMLElement
+      fireEvent.mouseEnter(popup)
+      vi.advanceTimersByTime(150)
+      expect(onHide).not.toHaveBeenCalled()
     })
   })
 
