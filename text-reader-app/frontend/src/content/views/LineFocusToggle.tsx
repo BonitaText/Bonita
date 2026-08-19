@@ -9,10 +9,13 @@
  * - The parent (`App`) owns which popup is open via `openPopup` / `showPopup`
  *   / `hidePopup`.
  * - Clicking the button toggles `settings.lineFocus`, independent of the
- *   popup. Hovering the button (while line focus is enabled) opens the
- *   popup via `onShow`; moving the mouse away from both the button and the
- *   popup closes it via `onHide`, after a short grace period so crossing
- *   from the button into the popup doesn't close it prematurely.
+ *   popup, and also calls `onShow`/`onHide` directly for that same click —
+ *   since the mouse is already over the button at the moment of the click,
+ *   `onMouseEnter` won't fire again on its own.
+ * - Hovering the button (while line focus is enabled) opens the popup via
+ *   `onShow`; moving the mouse away from both the button and the popup
+ *   closes it via `onHide`, after a short grace period so crossing from the
+ *   button into the popup doesn't close it prematurely.
  * - The popup is rendered inside `.bonita-font-wrapper` so it shares the same
  *   `.bonita-font-popup` positioning styles already defined in `App.tsx`.
  *
@@ -84,8 +87,11 @@ export interface LineFocusToggleProps {
  * Dock button that toggles line-focus mode on the host page.
  *
  * Behaviour:
- * - Clicking the button toggles `settings.lineFocus` on/off. This is
- *   independent of the popup — clicking does not open or close it.
+ * - Clicking the button toggles `settings.lineFocus` on/off, and also calls
+ *   `onShow`/`onHide` directly for that same click — since the mouse is
+ *   already over the button at the moment of the click, `onMouseEnter`
+ *   won't fire again on its own, so without this the popup wouldn't appear
+ *   until the user moved away and hovered back in.
  * - Hovering the button (while line focus is enabled) opens the popup via
  *   `onShow`; moving the mouse away from both the button and the popup
  *   closes it via `onHide`, after a short delay so crossing from the button
@@ -156,7 +162,14 @@ export default function LineFocusToggle({ open, onShow, onHide }: LineFocusToggl
       <button
         className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
         onClick={() => {
-          updateSetting('lineFocus', !enabled)
+          const next = !enabled
+          updateSetting('lineFocus', next)
+          cancelHide()
+          // The mouse is already over the button on click, so onMouseEnter
+          // won't fire again on its own — show/hide the popup directly here
+          // too, in addition to the hover-based open/close for revisits.
+          if (next) onShow()
+          else onHide()
         }}
         data-tooltip="Line Focus"
         aria-label="Line Focus"

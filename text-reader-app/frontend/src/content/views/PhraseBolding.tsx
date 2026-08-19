@@ -32,8 +32,11 @@ interface PhraseBoldingProps {
  * Dock button that toggles keyword bolding on the host page.
  *
  * Behaviour:
- * - Clicking the button toggles `settings.keywordBolding` on/off. This is
- *   independent of the popup — clicking does not open or close it.
+ * - Clicking the button toggles `settings.keywordBolding` on/off, and also
+ *   calls `onShow`/`onHide` directly for the same click — since the mouse is
+ *   already over the button at the moment of the click, `onMouseEnter` won't
+ *   fire again on its own, so without this the popup wouldn't appear until
+ *   the user moved away and hovered back in.
  * - Hovering the button (while bolding is enabled) opens the configuration
  *   popup via `onShow`; moving the mouse away from both the button and the
  *   popup closes it via `onHide`, after a short delay so crossing from the
@@ -91,7 +94,14 @@ export default function PhraseBolding({ open, onShow, onHide }: PhraseBoldingPro
       <button
         className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
         onClick={() => {
-          updateSetting('keywordBolding', !enabled)
+          const next = !enabled
+          updateSetting('keywordBolding', next)
+          cancelHide()
+          // The mouse is already over the button on click, so onMouseEnter
+          // won't fire again on its own — show/hide the popup directly here
+          // too, in addition to the hover-based open/close for revisits.
+          if (next) onShow()
+          else onHide()
         }}
         data-tooltip="Phrase Bolding"
         aria-label="Phrase Bolding"

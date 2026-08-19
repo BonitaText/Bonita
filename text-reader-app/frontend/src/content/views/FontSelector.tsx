@@ -7,44 +7,44 @@ import { useFontApplier } from '../hooks/useFontApplier'
 /**
  * Props for the FontSelector component.
  *
- * Controls which font the page text is rendered in. The component renders a
- * dock button that opens an inline popup listing the available fonts.
+ * Controls which font the page text is rendered in. Clicking the dock
+ * button toggles the font override fully on/off — no "Default" option is
+ * listed in the popup, since turning the tool off via the button *is* the
+ * way to return to the default font.
  */
 interface FontSelectorProps {
-  /**
-   * Whether the configuration popup is currently open.
-   * Controlled by the parent.
-   */
+  /** Whether the configuration popup is currently open. Controlled by the parent. */
   open: boolean
 
   /**
-   * Called on hover-in (or click, as a fallback for touch/accessibility) to
-   * request the popup open. Like POS highlighting, font selection has no
-   * separate on/off click — the popup itself is where a font gets picked —
-   * so this isn't gated on any prior "enabled" state.
+   * Called on hover-in, only while a font override is active, to request
+   * the popup open. Independent of the enable/disable click.
    */
   onShow: () => void
 
   /**
    * Called on hover-out (after a short grace period, so moving from the
    * button into the popup doesn't flicker-close it) to request the popup
-   * close. Also called directly when a font is picked, since selecting one
-   * is a one-shot action that should close the popup immediately.
+   * close. Also called directly when a font is picked, closing the popup
+   * immediately since selecting one is a one-shot action.
    */
   onHide: () => void
 }
 
 /**
- * The selectable fonts, in display order. `value` must match
- * {@link BonitaSettings.font}. Defined outside the component to avoid
- * recreation on every render.
+ * The selectable fonts, in display order. Deliberately excludes `'default'`
+ * — that state is reached by clicking the dock button off, not by picking
+ * it from this list. `value` must match {@link BonitaSettings.font}.
+ * Defined outside the component to avoid recreation on every render.
  */
-const FONTS: { value: BonitaSettings['font']; label: string }[] = [
-  { value: 'default', label: 'Default' },
+const FONTS: { value: Exclude<BonitaSettings['font'], 'default'>; label: string }[] = [
   { value: 'opendyslexic', label: 'OpenDyslexic' },
   { value: 'arial', label: 'Arial' },
   { value: 'verdana', label: 'Verdana' },
 ]
+
+/** Font applied when the tool is turned on with no prior selection. */
+const FALLBACK_FONT: BonitaSettings['font'] = 'opendyslexic'
 
 /**
  * FontSelector
@@ -52,16 +52,18 @@ const FONTS: { value: BonitaSettings['font']; label: string }[] = [
  * Dock button that lets the user override the page's font.
  *
  * Behaviour:
- * - Hovering the dock button opens the popup via `onShow`; moving the mouse
- *   away from both the button and the popup closes it via `onHide`, after a
- *   short delay so crossing from the button into the popup doesn't close it
- *   prematurely. Clicking the button also calls `onShow`, as a fallback for
- *   touch/accessibility.
- * - The button renders with the `active` class whenever a non-default font
- *   is selected (`settings.font !== 'default'`).
- * - Picking a font from the popup writes `settings.font` via `updateSetting`
- *   and calls `onHide` directly, closing the popup immediately (selecting a
- *   font is a one-shot action, unlike the multi-select POS highlighter).
+ * - Clicking the button toggles the override on/off directly:
+ *   - Turning **on** applies the last-selected non-default font, or
+ *     {@link FALLBACK_FONT} if none was chosen yet this session.
+ *   - Turning **off** sets `settings.font` back to `'default'`.
+ *   The click also calls `onShow`/`onHide` directly, since the mouse is
+ *   already over the button at the moment of the click and `onMouseEnter`
+ *   won't fire again on its own.
+ * - Hovering the button, while a font override is active, opens the popup
+ *   via `onShow`; moving away from both the button and popup closes it via
+ *   `onHide`.
+ * - The popup lists only real font choices (no "Default" row) — picking one
+ *   writes `settings.font` and calls `onHide` directly to close immediately.
  * - Mounts {@link useFontApplier}, which is responsible for actually
  *   applying `settings.font` to the page; this component only renders the
  *   picker UI and owns none of that DOM-mutation logic itself.
@@ -69,6 +71,17 @@ const FONTS: { value: BonitaSettings['font']; label: string }[] = [
 export default function FontSelector({ open, onShow, onHide }: FontSelectorProps) {
   const { settings, updateSetting } = useSettings()
   useFontApplier()
+
+  /** Whether a font override is currently active. */
+  const enabled = settings.font !== 'default'
+
+  /** Remembers the last non-default font chosen, for re-enabling without re-picking. */
+  const lastFontRef = useRef<BonitaSettings['font']>(
+    settings.font !== 'default' ? settings.font : FALLBACK_FONT,
+  )
+  if (settings.font !== 'default') {
+    lastFontRef.current = settings.font
+  }
 
   /** Pending hide timeout, so leaving the button and re-entering the popup can cancel it. */
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -89,20 +102,31 @@ export default function FontSelector({ open, onShow, onHide }: FontSelectorProps
     <div
       className="bonita-font-wrapper"
       onMouseEnter={() => {
-        cancelHide()
-        onShow()
+        if (enabled) {
+          cancelHide()
+          onShow()
+        }
       }}
       onMouseLeave={scheduleHide}
     >
       <button
-        className={`bonita-icon-btn ${settings.font !== 'default' ? 'active' : ''}`}
-        onClick={onShow}
+        className={`bonita-icon-btn ${enabled ? 'active' : ''}`}
+        onClick={() => {
+          const next = !enabled
+          updateSetting('font', next ? lastFontRef.current : 'default')
+          cancelHide()
+          // The mouse is already over the button on click, so onMouseEnter
+          // won't fire again on its own — show/hide the popup directly here
+          // too, in addition to the hover-based open/close for revisits.
+          if (next) onShow()
+          else onHide()
+        }}
         data-tooltip="Font"
         aria-label="Font"
       >
         <Type size={20} strokeWidth={1.8} />
       </button>
-      {open && (
+      {open && enabled && (
         <div
           className="bonita-font-popup"
           onMouseEnter={cancelHide}

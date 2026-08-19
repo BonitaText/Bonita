@@ -105,7 +105,10 @@ const items: { key: 'verbs' | 'nouns' | 'adjectives'; label: string }[] = [
  * - Clicking the button toggles a local "tool enabled" state on/off,
  *   independent of which categories are selected. This is what drives the
  *   `active` class and gates the hover popup — matching the click-toggles/
- *   hover-reveals pattern used by the other dock tools.
+ *   hover-reveals pattern used by the other dock tools. The click also calls
+ *   `onShow`/`onHide` directly, since the mouse is already over the button
+ *   at the moment of the click and `onMouseEnter` won't fire again on its
+ *   own.
  * - Turning the tool off also clears all selected categories
  *   (`settings.posEnabled`), so highlighting actually stops rather than
  *   just hiding the button state.
@@ -178,11 +181,15 @@ export default function POSHighlight({ open, onShow, onHide }: POSHighlightProps
         onClick={() => {
           const next = !enabled
           setEnabled(next)
-          if (!next) {
+          cancelHide()
+          if (next) {
+            // Mouse is already over the button on click — show directly
+            // rather than waiting for a hover-enter that won't fire again.
+            onShow()
+          } else {
             // Turning the tool off stops highlighting entirely, rather than
             // leaving stale categories selected underneath.
             updateSetting('posEnabled', { verbs: false, nouns: false, adjectives: false })
-            cancelHide()
             onHide()
           }
         }}
