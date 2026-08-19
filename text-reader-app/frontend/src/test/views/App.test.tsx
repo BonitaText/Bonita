@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import App from '../../content/views/App'
 import { useSettings } from '../../content/hooks/useSettings'
@@ -24,30 +25,44 @@ vi.mock('../../content/hooks/useSettings', () => ({
 // dock open/close, drag handling, the site toggle, popup coordination, and
 // tool gating — rather than each tool's internal behaviour, which is covered
 // by its own test file.
+//
+// Each mock mirrors the real click-toggle-then-show/hide shape (first click
+// calls onShow, a second click on the same mock calls onHide) so the
+// popup-coordination tests below still exercise App's showPopup/hidePopup
+// logic the same way real tool clicks would, without needing App itself to
+// know or care that the mocks are simplified.
+type ToolMockProps = { open: boolean; onShow: () => void; onHide: () => void }
+
+function ToolMock({ testId, open, onShow, onHide }: ToolMockProps & { testId: string }) {
+  const [on, setOn] = useState(false)
+  return (
+    <button
+      data-testid={testId}
+      data-open={String(open)}
+      onClick={() => {
+        const next = !on
+        setOn(next)
+        if (next) onShow()
+        else onHide()
+      }}
+    />
+  )
+}
+
 vi.mock('../../content/views/FontSelector', () => ({
-  default: (props: { open: boolean; onOpen: () => void }) => (
-    <button data-testid="font-selector" data-open={String(props.open)} onClick={props.onOpen} />
-  ),
+  default: (props: ToolMockProps) => <ToolMock testId="font-selector" {...props} />,
 }))
 vi.mock('../../content/views/LineFocusToggle', () => ({
-  default: (props: { open: boolean; onOpen: () => void }) => (
-    <button data-testid="line-focus" data-open={String(props.open)} onClick={props.onOpen} />
-  ),
+  default: (props: ToolMockProps) => <ToolMock testId="line-focus" {...props} />,
 }))
 vi.mock('../../content/views/PhraseBolding', () => ({
-  default: (props: { open: boolean; onOpen: () => void }) => (
-    <button data-testid="phrase-bolding" data-open={String(props.open)} onClick={props.onOpen} />
-  ),
+  default: (props: ToolMockProps) => <ToolMock testId="phrase-bolding" {...props} />,
 }))
 vi.mock('../../content/views/POSHighlight', () => ({
-  default: (props: { open: boolean; onOpen: () => void }) => (
-    <button data-testid="pos-highlight" data-open={String(props.open)} onClick={props.onOpen} />
-  ),
+  default: (props: ToolMockProps) => <ToolMock testId="pos-highlight" {...props} />,
 }))
 vi.mock('../../content/views/WordSimplify', () => ({
-  default: (props: { open: boolean; onOpen: () => void }) => (
-    <button data-testid="word-simplify" data-open={String(props.open)} onClick={props.onOpen} />
-  ),
+  default: (props: ToolMockProps) => <ToolMock testId="word-simplify" {...props} />,
 }))
 vi.mock('../../content/views/SentenceSplitting', () => ({
   default: () => <div data-testid="sentence-splitting" />,
@@ -564,12 +579,12 @@ describe('App — popup coordination across tools', () => {
     enableSiteViaClick()
   })
 
-  it('opens a tool popup when that tool reports a click', () => {
+  it('opens a tool popup when that tool reports a show (first click, mirroring turning the tool on)', () => {
     fireEvent.click(screen.getByTestId('pos-highlight'))
     expect(screen.getByTestId('pos-highlight')).toHaveAttribute('data-open', 'true')
   })
 
-  it('closes the open popup when the same tool is clicked again', () => {
+  it('closes the open popup when the same tool reports a hide (second click, mirroring turning the tool off)', () => {
     fireEvent.click(screen.getByTestId('pos-highlight'))
     fireEvent.click(screen.getByTestId('pos-highlight'))
     expect(screen.getByTestId('pos-highlight')).toHaveAttribute('data-open', 'false')

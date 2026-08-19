@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import POSHighlight from '../../content/views/POSHighlight'
 import { useSettings } from '../../content/hooks/useSettings'
@@ -24,50 +24,130 @@ function stubSettings(overrides: { posEnabled?: PosEnabled } = {}) {
   return updateSetting
 }
 
+/** Returns the `.bonita-font-wrapper` div — the hover target for the whole tool. */
+function getWrapper(): HTMLElement {
+  return document.querySelector('.bonita-font-wrapper') as HTMLElement
+}
+
 describe('POSHighlight', () => {
   beforeEach(() => {
     mockedUseSettings.mockReset()
   })
 
-  it('is inactive when posEnabled is absent (defaults all categories off)', () => {
-    stubSettings()
-    render(<POSHighlight open={false} onOpen={vi.fn()} />)
+  // The button's active state and popup visibility are now driven by a local
+  // "tool enabled" toggle (set via click), independent of which categories
+  // are selected in settings — not by whether any category is currently on.
+
+  it('is inactive by default, even if posEnabled has categories on from a previous session', () => {
+    stubSettings({ posEnabled: { verbs: true, nouns: false, adjectives: false } })
+    render(<POSHighlight open={false} onShow={vi.fn()} onHide={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'POS Highlighting' })).not.toHaveClass('active')
   })
 
-  it('is active when at least one category is enabled', () => {
-    stubSettings({ posEnabled: { verbs: true, nouns: false, adjectives: false } })
-    render(<POSHighlight open={false} onOpen={vi.fn()} />)
+  it('becomes active after clicking the dock button', async () => {
+    stubSettings()
+    const user = userEvent.setup()
+    render(<POSHighlight open={false} onShow={vi.fn()} onHide={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'POS Highlighting' }))
     expect(screen.getByRole('button', { name: 'POS Highlighting' })).toHaveClass('active')
   })
 
-  it('calls onOpen when the dock button is clicked', async () => {
+  it('calls onShow directly when enabling via click', async () => {
     stubSettings()
-    const onOpen = vi.fn()
+    const onShow = vi.fn()
+    const onHide = vi.fn()
     const user = userEvent.setup()
-    render(<POSHighlight open={false} onOpen={onOpen} />)
+    render(<POSHighlight open={false} onShow={onShow} onHide={onHide} />)
 
     await user.click(screen.getByRole('button', { name: 'POS Highlighting' }))
-    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onShow).toHaveBeenCalledTimes(1)
+    expect(onHide).not.toHaveBeenCalled()
+  })
+
+  it('calls onHide and clears all categories when disabling via a second click', async () => {
+    const updateSetting = stubSettings({ posEnabled: { verbs: true, nouns: true, adjectives: false } })
+    const onShow = vi.fn()
+    const onHide = vi.fn()
+    const user = userEvent.setup()
+    render(<POSHighlight open={true} onShow={onShow} onHide={onHide} />)
+
+    const button = screen.getByRole('button', { name: 'POS Highlighting' })
+    await user.click(button) // turn on
+    await user.click(button) // turn off
+
+    expect(onHide).toHaveBeenCalledTimes(1)
+    expect(updateSetting).toHaveBeenCalledWith('posEnabled', {
+      verbs: false,
+      nouns: false,
+      adjectives: false,
+    })
+  })
+
+  describe('hover behaviour', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+    })
+
+    it('does not call onShow on hover-in before the tool has been toggled on', () => {
+      stubSettings()
+      const onShow = vi.fn()
+      render(<POSHighlight open={false} onShow={onShow} onHide={vi.fn()} />)
+
+      fireEvent.mouseEnter(getWrapper())
+      expect(onShow).not.toHaveBeenCalled()
+    })
+
+    it('calls onHide after a delay on hover-out once enabled', () => {
+      stubSettings()
+      const onHide = vi.fn()
+      render(<POSHighlight open={true} onShow={vi.fn()} onHide={onHide} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'POS Highlighting' }))
+      fireEvent.mouseLeave(getWrapper())
+      expect(onHide).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(150)
+      expect(onHide).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('does not render the popup when closed', () => {
     stubSettings()
-    render(<POSHighlight open={false} onOpen={vi.fn()} />)
+    render(<POSHighlight open={false} onShow={vi.fn()} onHide={vi.fn()} />)
     expect(screen.queryByText('Verbs')).not.toBeInTheDocument()
   })
 
-  it('renders all three categories when open', () => {
+  it('does not render the popup when open is true but the tool has not been toggled on', () => {
+    // open alone isn't enough now — the popup also requires the local
+    // `enabled` state, which starts false until the button is clicked.
     stubSettings()
-    render(<POSHighlight open={true} onOpen={vi.fn()} />)
+    render(<POSHighlight open={true} onShow={vi.fn()} onHide={vi.fn()} />)
+    expect(screen.queryByText('Verbs')).not.toBeInTheDocument()
+  })
+
+  it('renders all three categories once toggled on and open', async () => {
+    stubSettings()
+    const user = userEvent.setup()
+    render(<POSHighlight open={true} onShow={vi.fn()} onHide={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'POS Highlighting' }))
+
     expect(screen.getByText('Verbs')).toBeInTheDocument()
     expect(screen.getByText('Nouns')).toBeInTheDocument()
     expect(screen.getByText('Adjectives')).toBeInTheDocument()
   })
 
-  it('marks only the enabled categories with the "on" class', () => {
+  it('marks only the enabled categories with the "on" class', async () => {
     stubSettings({ posEnabled: { verbs: true, nouns: false, adjectives: true } })
-    render(<POSHighlight open={true} onOpen={vi.fn()} />)
+    const user = userEvent.setup()
+    render(<POSHighlight open={true} onShow={vi.fn()} onHide={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'POS Highlighting' }))
 
     expect(screen.getByText('Verbs').closest('button')).toHaveClass('on')
     expect(screen.getByText('Adjectives').closest('button')).toHaveClass('on')
@@ -77,8 +157,9 @@ describe('POSHighlight', () => {
   it('toggles a single category on click while preserving the others', async () => {
     const updateSetting = stubSettings({ posEnabled: { verbs: true, nouns: false, adjectives: false } })
     const user = userEvent.setup()
-    render(<POSHighlight open={true} onOpen={vi.fn()} />)
+    render(<POSHighlight open={true} onShow={vi.fn()} onHide={vi.fn()} />)
 
+    await user.click(screen.getByRole('button', { name: 'POS Highlighting' })) // toggle tool on
     await user.click(screen.getByText('Nouns'))
 
     expect(updateSetting).toHaveBeenCalledWith('posEnabled', {
@@ -88,9 +169,12 @@ describe('POSHighlight', () => {
     })
   })
 
-  it('sources each swatch colour from settings.posColors', () => {
+  it('sources each swatch colour from settings.posColors', async () => {
     stubSettings({ posEnabled: { verbs: false, nouns: false, adjectives: false } })
-    render(<POSHighlight open={true} onOpen={vi.fn()} />)
+    const user = userEvent.setup()
+    render(<POSHighlight open={true} onShow={vi.fn()} onHide={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'POS Highlighting' }))
 
     const verbsRow = screen.getByText('Verbs').closest('button') as HTMLElement
     const swatch = verbsRow.querySelector('.bonita-pos-dot') as HTMLElement
