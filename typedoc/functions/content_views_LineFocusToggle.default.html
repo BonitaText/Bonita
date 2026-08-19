@@ -20,8 +20,15 @@
 <p>Dock button that toggles line-focus mode on the host page.</p>
 <p>Behaviour:</p>
 <ul>
-<li>Clicking the button toggles <code>settings.lineFocus</code> on/off and simultaneously
-opens/closes the configuration popup via <code>onOpen</code>.</li>
+<li>Clicking the button toggles <code>settings.lineFocus</code> on/off, and also calls
+<code>onShow</code>/<code>onHide</code> directly for that same click — since the mouse is
+already over the button at the moment of the click, <code>onMouseEnter</code>
+won't fire again on its own, so without this the popup wouldn't appear
+until the user moved away and hovered back in.</li>
+<li>Hovering the button (while line focus is enabled) opens the popup via
+<code>onShow</code>; moving the mouse away from both the button and the popup
+closes it via <code>onHide</code>, after a short delay so crossing from the button
+into the popup doesn't close it prematurely.</li>
 <li>The button renders with the <code>active</code> class while line focus is enabled.</li>
 <li>The popup exposes a range slider for <code>settings.lineFocusHeight</code> (px),
 clamped between <a href="../variables/content_views_LineFocusToggle.LINE_FOCUS_MIN_PX.html" class="tsd-kind-variable">LINE_FOCUS_MIN_PX</a> and <a href="../variables/content_views_LineFocusToggle.LINE_FOCUS_MAX_PX.html" class="tsd-kind-variable">LINE_FOCUS_MAX_PX</a>.
@@ -37,7 +44,7 @@ The value is also mirrored onto <code>--bonita-line-focus-height</code> on <code
 </div></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Element</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L88">content/views/LineFocusToggle.tsx:88</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L107">content/views/LineFocusToggle.tsx:107</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

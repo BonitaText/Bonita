@@ -14,12 +14,12 @@
 <section class="tsd-panel tsd-comment">
 <div class="tsd-comment tsd-typography"><p>Props for the <a href="../functions/content_views_LineFocusToggle.default.html" class="tsd-kind-function">LineFocusToggle</a> component.</p>
 <p>Mirrors the shape used by PhraseBolding so <code>App</code> can manage all
-popups with a single <code>openPopup</code> state variable and a shared <code>togglePopup</code>
-helper.</p>
+popups with a single <code>openPopup</code> state variable and shared <code>showPopup</code> /
+<code>hidePopup</code> helpers.</p>
 </div></section>
-<div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">LineFocusToggleProps</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#onopen">onOpen</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#open">open</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
+<div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">LineFocusToggleProps</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#onhide">onHide</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#onshow">onShow</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#open">open</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L57">content/views/LineFocusToggle.tsx:57</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L64">content/views/LineFocusToggle.tsx:64</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -27,28 +27,37 @@ helper.</p>
 <div class="tsd-accordion-details">
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading tsd-anchor-link" id="properties">Properties<a href="#properties" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<div class="tsd-index-list"><a href="#onopen" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Open</span></a>
+<div class="tsd-index-list"><a href="#onhide" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Hide</span></a>
+<a href="#onshow" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Show</span></a>
 <a href="#open" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>open</span></a>
 </div></section></div></details></section></section>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="properties-1">Properties<a href="#properties-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
 <section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="onopen"><span>on<wbr/>Open</span><a href="#onopen" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<div class="tsd-signature"><span class="tsd-kind-property">onOpen</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></div>
-<div class="tsd-comment tsd-typography"><p>Callback fired when the user clicks the toggle button.</p>
-<p>The parent resolves open/close by comparing the incoming name with
-<code>openPopup</code>: same name closes, different name switches.</p>
+<h3 class="tsd-anchor-link" id="onhide"><span>on<wbr/>Hide</span><a href="#onhide" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<div class="tsd-signature"><span class="tsd-kind-property">onHide</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></div>
+<div class="tsd-comment tsd-typography"><p>Called on hover-out (after a short grace period, so moving from the
+button into the popup doesn't flicker-close it) to request the popup
+close.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L67">content/views/LineFocusToggle.tsx:67</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L79">content/views/LineFocusToggle.tsx:79</a></li></ul></aside></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="onshow"><span>on<wbr/>Show</span><a href="#onshow" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<div class="tsd-signature"><span class="tsd-kind-property">onShow</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></div>
+<div class="tsd-comment tsd-typography"><p>Called on hover-in (while the tool is enabled) to request the popup
+open. Independent of the enable/disable click.</p>
+</div><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L72">content/views/LineFocusToggle.tsx:72</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="open"><span>open</span><a href="#open" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">open</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span></div>
 <div class="tsd-comment tsd-typography"><p>Whether this component's popup is currently open.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L59">content/views/LineFocusToggle.tsx:59</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/LineFocusToggle.tsx#L66">content/views/LineFocusToggle.tsx:66</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -65,7 +74,7 @@ helper.</p>
 <h3>On This Page</h3></summary>
 <div class="tsd-accordion-details">
 <details open class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Properties</summary>
-<div><a href="#onopen"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Open</span></a><a href="#open"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>open</span></a></div></details></div></details></div>
+<div><a href="#onhide"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Hide</span></a><a href="#onshow"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>on<wbr/>Show</span></a><a href="#open"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>open</span></a></div></details></div></details></div>
 <div class="site-menu">
 <nav class="tsd-navigation"><a href="../index.html">frontend</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">

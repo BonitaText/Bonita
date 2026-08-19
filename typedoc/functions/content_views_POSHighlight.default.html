@@ -20,9 +20,20 @@
 <p>Dock button that toggles part-of-speech highlighting on the host page.</p>
 <p>Behaviour:</p>
 <ul>
-<li>Clicking the dock button opens/closes the popup via <code>onOpen</code>.</li>
-<li>The button renders with the <code>active</code> class when at least one POS
-category (<code>verbs</code>, <code>nouns</code>, or <code>adjectives</code>) is enabled — <code>anyOn</code>.</li>
+<li>Clicking the button toggles a local &quot;tool enabled&quot; state on/off,
+independent of which categories are selected. This is what drives the
+<code>active</code> class and gates the hover popup — matching the click-toggles/
+hover-reveals pattern used by the other dock tools. The click also calls
+<code>onShow</code>/<code>onHide</code> directly, since the mouse is already over the button
+at the moment of the click and <code>onMouseEnter</code> won't fire again on its
+own.</li>
+<li>Turning the tool off also clears all selected categories
+(<code>settings.posEnabled</code>), so highlighting actually stops rather than
+just hiding the button state.</li>
+<li>Hovering the button, while the tool is enabled, opens the popup via
+<code>onShow</code>; moving the mouse away from both the button and the popup
+closes it via <code>onHide</code>, after a short delay so crossing from the
+button into the popup doesn't close it prematurely.</li>
 <li>Inside the popup each row independently toggles its POS category
 and shows a colour swatch sourced from <code>settings.posColors[key]</code>.</li>
 <li>A checkmark (✓) is visible on rows whose category is currently on.</li>
@@ -34,7 +45,7 @@ and shows a colour swatch sourced from <code>settings.posColors[key]</code>.</li
 <li><span><span class="tsd-kind-parameter">__namedParameters</span>: <span class="tsd-signature-type">POSHighlightProps</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Element</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/POSHighlight.tsx#L102">content/views/POSHighlight.tsx:102</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/POSHighlight.tsx#L123">content/views/POSHighlight.tsx:123</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

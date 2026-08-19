@@ -20,12 +20,21 @@
 <p>Dock button that lets the user override the page's font.</p>
 <p>Behaviour:</p>
 <ul>
-<li>Clicking the dock button calls <code>onOpen</code> to reveal the popup.</li>
-<li>The button renders with the <code>active</code> class whenever a non-default font
-is selected (<code>settings.font !== 'default'</code>).</li>
-<li>Picking a font from the popup writes <code>settings.font</code> via <code>updateSetting</code>
-and <strong>also</strong> calls <code>onOpen</code> again, which closes the popup (selecting a
-font is a one-shot action, unlike the multi-select POS highlighter).</li>
+<li>Clicking the button toggles the override on/off directly:
+<ul>
+<li>Turning <strong>on</strong> applies the last-selected non-default font, or
+FALLBACK_FONT if none was chosen yet this session.</li>
+<li>Turning <strong>off</strong> sets <code>settings.font</code> back to <code>'default'</code>.
+The click also calls <code>onShow</code>/<code>onHide</code> directly, since the mouse is
+already over the button at the moment of the click and <code>onMouseEnter</code>
+won't fire again on its own.</li>
+</ul>
+</li>
+<li>Hovering the button, while a font override is active, opens the popup
+via <code>onShow</code>; moving away from both the button and popup closes it via
+<code>onHide</code>.</li>
+<li>The popup lists only real font choices (no &quot;Default&quot; row) — picking one
+writes <code>settings.font</code> and calls <code>onHide</code> directly to close immediately.</li>
 <li>Mounts <a href="content_hooks_useFontApplier.useFontApplier.html" class="tsd-kind-function">useFontApplier</a>, which is responsible for actually
 applying <code>settings.font</code> to the page; this component only renders the
 picker UI and owns none of that DOM-mutation logic itself.</li>
@@ -37,7 +46,7 @@ picker UI and owns none of that DOM-mutation logic itself.</li>
 <li><span><span class="tsd-kind-parameter">__namedParameters</span>: <span class="tsd-signature-type">FontSelectorProps</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Element</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/FontSelector.tsx#L57">content/views/FontSelector.tsx:57</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/FontSelector.tsx#L71">content/views/FontSelector.tsx:71</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

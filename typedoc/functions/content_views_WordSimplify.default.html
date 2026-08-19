@@ -21,18 +21,16 @@
 the user pick how aggressive it should be.</p>
 <p>Behaviour:</p>
 <ul>
-<li>If <code>settings.wordSimplification</code> is off, clicking the dock button
-turns it on directly (<code>updateSetting('wordSimplification', true)</code>)
-and does <strong>not</strong> open the popup on that click.</li>
-<li>If it's already on, clicking the dock button instead calls <code>onOpen</code>
-to reveal the level picker.</li>
-<li>The popup itself only renders when both <code>open</code> is true <strong>and</strong>
-<code>settings.wordSimplification</code> is true — so closing the parent popup
-state alone, or turning simplification off, both hide it.</li>
-<li>Selecting a level writes <code>wordComplexity</code>; a checkmark and filled
-dot mark the currently active level.</li>
-<li>A &quot;Turn off&quot; row at the bottom disables simplification entirely via
-<code>updateSetting('wordSimplification', false)</code>.</li>
+<li>Clicking the button toggles <code>settings.wordSimplification</code> on/off
+directly, and also calls <code>onShow</code>/<code>onHide</code> for that same click — since
+the mouse is already over the button at the moment of the click,
+<code>onMouseEnter</code> won't fire again on its own, so without this the popup
+wouldn't appear until the user moved away and hovered back in.</li>
+<li>Hovering the button, while enabled, opens the popup via <code>onShow</code>;
+moving away from both the button and popup closes it via <code>onHide</code>.</li>
+<li>The popup contains a single 3-point slider (snapping to low/medium/
+high) for <code>settings.wordComplexity</code>, matching the visual language of
+Phrase Bolding's threshold slider rather than a list of rows.</li>
 </ul>
 </div>
 <div class="tsd-parameters">
@@ -41,7 +39,7 @@ dot mark the currently active level.</li>
 <li><span><span class="tsd-kind-parameter">__namedParameters</span>: <span class="tsd-signature-type">WordSimplifyProps</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Element</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/a891e16a8c90ad6b96ed3be6c49da3fec9d8acb7/text-reader-app/frontend/src/content/views/WordSimplify.tsx#L57">content/views/WordSimplify.tsx:57</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/5173d813fb033508e7aae44dc637b3dd5bb015c0/text-reader-app/frontend/src/content/views/WordSimplify.tsx#L62">content/views/WordSimplify.tsx:62</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
