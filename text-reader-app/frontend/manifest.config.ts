@@ -41,5 +41,9 @@ export default defineManifest({
       resources: ['fonts/*'],
       matches: ['http://*/*', 'https://*/*'],
     },
+    {
+      resources: ['assets/*.png'],
+      matches: ['http://*/*', 'https://*/*'],
+    },
   ],
 })

@@ -1,19 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import App from '../../content/views/App'
 import { useSettings } from '../../content/hooks/useSettings'
 
 // ── Internal constants mirrored from App.tsx (not exported by the component) ──
 // If these ever change in the source file, update them here too.
-const TRIGGER_SIZE = 58
+const TRIGGER_SIZE = 75
 const DEFAULT_MARGIN = 40
 const SESSION_KEY = 'bonita-site-enabled'
 const POS_KEY = 'bonita-trigger-pos'
+const DPR_BASELINE_KEY = 'bonita-dpr-baseline'
 
-interface TriggerPos {
-  left: number
-  top: number
+/**
+ * Shape persisted to chrome.storage.local for the trigger's position (see
+ * `StoredTriggerPos` in App.tsx). Position is stored as viewport FRACTIONS,
+ * not raw px, so it reads back correctly regardless of window size or zoom.
+ */
+interface StoredTriggerPos {
+  leftFrac: number
+  topFrac: number
   tuckedSide: 'left' | 'right' | null
 }
 
@@ -94,6 +100,58 @@ function enableSiteViaClick() {
   fireEvent.click(screen.getByRole('button', { name: 'Enable Bonita on this site' }))
 }
 
+/**
+ * App.tsx applies `pos.left`/`pos.top` as inline styles on the
+ * `.bonita-pos-anchor` div — the trigger button's *parent* — not on the
+ * trigger `<button>` itself (the button only carries `--bonita-rotation`).
+ * Every test that asserts on-screen position must read from this element,
+ * not from `trigger` directly, or `style.left`/`style.top` will be `''`.
+ */
+function anchorOf(trigger: HTMLElement): HTMLElement {
+  return trigger.parentElement as HTMLElement
+}
+
+/**
+ * Builds a `chrome.storage.local`-shaped stored position from desired CSS
+ * px, converting to the viewport-fraction format App.tsx persists (see
+ * `toStoredPos`/`applySavedPos` in App.tsx). This is computed against the
+ * CURRENT `window.innerWidth`/`innerHeight`, so call it after any
+ * test-specific viewport resize and before the position is expected to be
+ * read back.
+ */
+function storedPos(
+  leftPx: number,
+  topPx: number,
+  tuckedSide: StoredTriggerPos['tuckedSide'] = null,
+): StoredTriggerPos {
+  return {
+    leftFrac: leftPx / window.innerWidth,
+    topFrac: topPx / window.innerHeight,
+    tuckedSide,
+  }
+}
+
+// ── window.matchMedia mock ──────────────────────────────────────────────────
+//
+// jsdom doesn't implement matchMedia at all. App.tsx's useZoomCorrection
+// hook calls matchMedia() unconditionally on mount (and again on every zoom
+// change) to listen for DPR changes, so every test that mounts <App /> needs
+// a stub or the mount effect throws `TypeError: matchMedia is not a
+// function`, which previously took down every test in this file regardless
+// of what it was actually testing.
+function createMatchMediaMock() {
+  return vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(), // deprecated API, but kept in case anything still calls it
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
 // ── chrome.storage mock ─────────────────────────────────────────────────────
 //
 // App.tsx persists trigger position/tuck state to chrome.storage.local (not
@@ -141,14 +199,24 @@ function createChromeMock(initial: Record<string, unknown> = {}) {
         set: vi.fn(() => Promise.resolve()),
       },
     },
+    runtime: {
+      getURL: vi.fn((path: string) => path),
+    },
   }
 }
 
 let chromeMock: ReturnType<typeof createChromeMock>
 
-/** Installs a chrome.storage mock seeded with the given POS_KEY value. */
-function stubChrome(posValue?: TriggerPos) {
-  chromeMock = createChromeMock(posValue ? { [POS_KEY]: posValue } : {})
+/**
+ * Installs a chrome.storage mock, optionally seeded with a saved trigger
+ * position (POS_KEY) and/or a shared DPR baseline (DPR_BASELINE_KEY).
+ * Passing neither seeds an empty store, matching a fresh install.
+ */
+function stubChrome(posValue?: StoredTriggerPos, dprBaseline?: number) {
+  const initial: Record<string, unknown> = {}
+  if (posValue) initial[POS_KEY] = posValue
+  if (dprBaseline !== undefined) initial[DPR_BASELINE_KEY] = dprBaseline
+  chromeMock = createChromeMock(initial)
   vi.stubGlobal('chrome', chromeMock)
   return chromeMock
 }
@@ -165,10 +233,28 @@ async function renderApp() {
   return trigger as HTMLElement
 }
 
+/**
+ * `useZoomCorrection` seeds a SHARED DPR baseline into chrome.storage.local
+ * on first mount whenever one doesn't already exist (see App.tsx), which
+ * means `chrome.storage.local.set` gets one extra, unrelated call on every
+ * mount that doesn't pre-seed `DPR_BASELINE_KEY` via `stubChrome`. Tests
+ * that assert exact call counts/absence of calls on the POSITION key must
+ * wait for that write and clear it first, or they'll flakily see (or miss)
+ * it depending on microtask timing. Only call this when the baseline was
+ * NOT pre-seeded — otherwise no such write happens and this will time out.
+ */
+async function settleDprBaselineWrite() {
+  await waitFor(() => {
+    expect(chromeMock.storage.local.set).toHaveBeenCalled()
+  })
+  chromeMock.storage.local.set.mockClear()
+}
+
 beforeEach(() => {
   mockedUseSettings.mockReset()
   sessionStorage.clear()
   stubChrome()
+  vi.stubGlobal('matchMedia', createMatchMediaMock())
 })
 
 /**
@@ -255,16 +341,19 @@ describe('App — trigger click vs. drag', () => {
   })
 
   it('repositions the trigger while dragging', async () => {
-    stubChrome({ left: 200, top: 200, tuckedSide: null })
+    stubChrome(storedPos(200, 200))
     stubUseSettings()
     const trigger = await renderApp()
-    const startLeft = parseFloat(trigger.style.left)
+    const startLeft = parseFloat(anchorOf(trigger).style.left)
 
     fireEvent.mouseDown(trigger, { clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 150, clientY: 100 })
     fireEvent.mouseUp(document)
 
-    expect(parseFloat(trigger.style.left)).toBe(startLeft + 50)
+    // toBeCloseTo, not toBe: the stored position round-trips through a
+    // viewport-fraction conversion (see storedPos), which can introduce
+    // negligible floating-point drift depending on window dimensions.
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(startLeft + 50, 5)
   })
 
   it('closes the dock when clicking outside both the trigger and the dock', async () => {
@@ -280,7 +369,7 @@ describe('App — trigger click vs. drag', () => {
   })
 
   it('closes the dock when a drag ends by tucking the trigger against an edge', async () => {
-    stubChrome({ left: 200, top: 200, tuckedSide: null })
+    stubChrome(storedPos(200, 200))
     stubUseSettings()
     const trigger = await renderApp()
 
@@ -312,38 +401,54 @@ describe('App — trigger position persistence (chrome.storage.local)', () => {
     stubUseSettings()
     const trigger = await renderApp()
 
-    expect(trigger.style.left).toBe(`${window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
-    expect(trigger.style.top).toBe(`${window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
+    expect(anchorOf(trigger).style.left).toBe(`${window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
+    expect(anchorOf(trigger).style.top).toBe(`${window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
   })
 
   it('restores a previously saved position from chrome.storage.local', async () => {
-    stubChrome({ left: 123, top: 456, tuckedSide: null })
+    stubChrome(storedPos(123, 456))
     stubUseSettings()
     const trigger = await renderApp()
 
-    expect(trigger.style.left).toBe('123px')
-    expect(trigger.style.top).toBe('456px')
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(123, 5)
+    expect(parseFloat(anchorOf(trigger).style.top)).toBeCloseTo(456, 5)
   })
 
-  it('persists the new position to chrome.storage.local after a drag', async () => {
-    stubChrome({ left: 200, top: 200, tuckedSide: null })
+  it('ignores a stored value that is missing leftFrac/topFrac (e.g. a stale raw-px entry)', async () => {
+    // Defensive fallback in applySavedPos: a malformed/legacy stored value
+    // must not produce NaN positions or crash — it should just be skipped,
+    // leaving the trigger at its default corner.
+    stubChrome({ left: 123, top: 456 } as unknown as StoredTriggerPos)
     stubUseSettings()
     const trigger = await renderApp()
-    const startLeft = parseFloat(trigger.style.left)
+
+    expect(anchorOf(trigger).style.left).toBe(`${window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
+    expect(anchorOf(trigger).style.top).toBe(`${window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN}px`)
+  })
+
+  it('persists the new position to chrome.storage.local, as viewport fractions, after a drag', async () => {
+    stubChrome(storedPos(200, 200))
+    stubUseSettings()
+    const trigger = await renderApp()
+    const startLeft = parseFloat(anchorOf(trigger).style.left)
 
     fireEvent.mouseDown(trigger, { clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 150, clientY: 100 })
     fireEvent.mouseUp(document)
 
+    const expectedLeftFrac = (startLeft + 50) / window.innerWidth
     expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
-      [POS_KEY]: expect.objectContaining({ left: startLeft + 50 }),
+      [POS_KEY]: expect.objectContaining({
+        leftFrac: expect.closeTo(expectedLeftFrac, 5),
+      }),
     })
   })
 
   it('does not write to chrome.storage.local on every drag frame, only on release', async () => {
-    stubChrome({ left: 200, top: 200, tuckedSide: null })
+    stubChrome(storedPos(200, 200))
     stubUseSettings()
     const trigger = await renderApp()
+    await settleDprBaselineWrite()
 
     fireEvent.mouseDown(trigger, { clientX: 100, clientY: 100 })
     fireEvent.mouseMove(document, { clientX: 110, clientY: 100 })
@@ -367,24 +472,28 @@ describe('App — cross-tab position sync (chrome.storage.onChanged)', () => {
   })
 
   it('updates the trigger position live when another tab writes a new position', async () => {
-    stubChrome({ left: 100, top: 100, tuckedSide: null })
+    stubChrome(storedPos(100, 100))
     stubUseSettings()
     const trigger = await renderApp()
-    expect(trigger.style.left).toBe('100px')
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(100, 5)
 
     // Simulate a write from another tab by calling the mocked storage
     // directly — the mock fires onChanged listeners synchronously, exactly
-    // like every open tab would receive it in real Chrome.
-    await chromeMock.storage.local.set({ [POS_KEY]: { left: 300, top: 250, tuckedSide: null } })
+    // like every open tab would receive it in real Chrome. Wrapped in act()
+    // since it synchronously triggers a React state update outside of an
+    // event handler / RTL fire* helper.
+    await act(async () => {
+      await chromeMock.storage.local.set({ [POS_KEY]: storedPos(300, 250) })
+    })
 
     await waitFor(() => {
-      expect(trigger.style.left).toBe('300px')
-      expect(trigger.style.top).toBe('250px')
+      expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(300, 5)
+      expect(parseFloat(anchorOf(trigger).style.top)).toBeCloseTo(250, 5)
     })
   })
 
   it('mirrors a tuck from another tab, including closing this tab’s dock', async () => {
-    stubChrome({ left: 200, top: 200, tuckedSide: null })
+    stubChrome(storedPos(200, 200))
     stubUseSettings()
     const trigger = await renderApp()
 
@@ -392,7 +501,9 @@ describe('App — cross-tab position sync (chrome.storage.onChanged)', () => {
     fireEvent.mouseUp(document)
     expect(trigger).toHaveClass('open')
 
-    await chromeMock.storage.local.set({ [POS_KEY]: { left: 0, top: 200, tuckedSide: 'left' } })
+    await act(async () => {
+      await chromeMock.storage.local.set({ [POS_KEY]: storedPos(0, 200, 'left') })
+    })
 
     await waitFor(() => {
       expect(trigger).toHaveClass('tucked-left')
@@ -400,7 +511,7 @@ describe('App — cross-tab position sync (chrome.storage.onChanged)', () => {
   })
 
   it('ignores an incoming cross-tab update while a drag is in progress locally', async () => {
-    stubChrome({ left: 100, top: 100, tuckedSide: null })
+    stubChrome(storedPos(100, 100))
     stubUseSettings()
     const trigger = await renderApp()
 
@@ -408,10 +519,12 @@ describe('App — cross-tab position sync (chrome.storage.onChanged)', () => {
     fireEvent.mouseMove(document, { clientX: 150, clientY: 100 }) // local drag now at left=150
 
     // Another tab reports an unrelated position mid-drag.
-    await chromeMock.storage.local.set({ [POS_KEY]: { left: 999, top: 999, tuckedSide: null } })
+    await act(async () => {
+      await chromeMock.storage.local.set({ [POS_KEY]: storedPos(999, 999) })
+    })
 
     // The in-progress local drag must not be clobbered by the incoming sync.
-    expect(trigger.style.left).toBe('150px')
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(150, 5)
 
     fireEvent.mouseUp(document)
   })
@@ -437,29 +550,60 @@ describe('App — viewport resize', () => {
   })
 
   it('re-clamps the trigger position when the viewport shrinks', async () => {
-    stubChrome({ left: 900, top: 700, tuckedSide: null })
+    stubChrome(storedPos(900, 700))
     stubUseSettings()
     const trigger = await renderApp()
-    expect(trigger.style.left).toBe('900px')
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeCloseTo(900, 5)
 
     Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 400 })
     Object.defineProperty(window, 'innerHeight', { writable: true, configurable: true, value: 300 })
     fireEvent(window, new Event('resize'))
 
-    expect(parseFloat(trigger.style.left)).toBeLessThanOrEqual(400 - TRIGGER_SIZE)
-    expect(parseFloat(trigger.style.top)).toBeLessThanOrEqual(300 - TRIGGER_SIZE)
+    expect(parseFloat(anchorOf(trigger).style.left)).toBeLessThanOrEqual(400 - TRIGGER_SIZE)
+    expect(parseFloat(anchorOf(trigger).style.top)).toBeLessThanOrEqual(300 - TRIGGER_SIZE)
   })
 
   it('does not write the resize-clamped position to chrome.storage.local', async () => {
-    stubChrome({ left: 900, top: 700, tuckedSide: null })
+    stubChrome(storedPos(900, 700))
     stubUseSettings()
     await renderApp()
-    chromeMock.storage.local.set.mockClear()
+    await settleDprBaselineWrite()
 
     Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 400 })
     fireEvent(window, new Event('resize'))
 
     expect(chromeMock.storage.local.set).not.toHaveBeenCalled()
+  })
+})
+
+describe('App — shared DPR baseline (zoom size correction)', () => {
+  it('seeds the shared DPR baseline in chrome.storage.local when none exists yet', async () => {
+    stubUseSettings()
+    await renderApp()
+
+    await waitFor(() => {
+      expect(chromeMock.storage.local.set).toHaveBeenCalledWith({
+        [DPR_BASELINE_KEY]: window.devicePixelRatio,
+      })
+    })
+  })
+
+  it('uses an existing shared baseline instead of this tab’s own load-time DPR, and does not overwrite it', async () => {
+    // Simulates a baseline seeded earlier by a different tab at 2x zoom;
+    // this tab "loads" at the default devicePixelRatio, so it should scale
+    // itself up to match rather than treating its own DPR as normal.
+    stubChrome(undefined, 2)
+    stubUseSettings()
+    const trigger = await renderApp()
+    const anchor = trigger.parentElement as HTMLElement
+
+    await waitFor(() => {
+      expect(anchor.style.getPropertyValue('--bonita-zoom')).toBe(String(2 / window.devicePixelRatio))
+    })
+
+    expect(chromeMock.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ [DPR_BASELINE_KEY]: expect.anything() }),
+    )
   })
 })
 

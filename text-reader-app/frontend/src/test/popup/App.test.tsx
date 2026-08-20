@@ -33,8 +33,11 @@ beforeEach(() => {
 describe('popup App — initial render', () => {
   it('renders the brand header', async () => {
     render(<App />)
-    expect(screen.getByText('Bonita')).toBeInTheDocument()
-    expect(screen.getByText('Readable web overlay')).toBeInTheDocument()
+    // popup/App.tsx's hero section is a single logo image
+    // (<img className="popup-logo" alt="Bonita" />) — there is no separate
+    // "Bonita" text node or "Readable web overlay" tagline in the current
+    // markup, so this asserts against the alt text instead of text content.
+    expect(screen.getByAltText('Bonita')).toBeInTheDocument()
     await waitFor(() => expect(mockedGetSettings).toHaveBeenCalled())
   })
 
