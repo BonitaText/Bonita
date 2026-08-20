@@ -51,7 +51,7 @@ The real meat of the project, this folder contains all of our code that makes up
 - [IMPORTANT] `/test/...` - As the name suggests, this folder contains all the tests for all the codes. Tests for each file are kept in a folder named the exact same as the non-test files.
 
 #### `text-reader-app/frontend/src/content`
-Files within folders are basically named based on the tools they depend on. Except in `hooks/useReadingTools.ts` actually deals with the logic of sentence splitting, phrase bolding, word simplifying, and POS highlighting. A "ReadingTools" file won't appear in `utils` but will show up in `views`.
+This folder has everything to do with the toolbar (also called the dock, and floating button). Files within folders are basically named based on the tools they depend on. Except in `hooks/useReadingTools.ts` actually deals with the logic of sentence splitting, phrase bolding, word simplifying, and POS highlighting. A "ReadingTools" file won't appear in `utils` but will show up in `views`.
 
 - `content/hooks/` - Glue layer that watches user settings and calls into `utils/`. Little backend logic.
 
@@ -66,7 +66,7 @@ Files within folders are basically named based on the tools they depend on. Exce
 - `content/main.tsx` - Entry point — boots the whole content script.
 
 #### `text-reader-app/frontend/src/popup`
-MUCH more simple then the content folder. This is a popup that appears when you click the extension icon at the very top of the page (NOT THE FLOATING BUTTON). It's used to toggle extensions on and off. 
+MUCH more simple then the content folder. This is a popup that appears when you click the extension icon at the very top of the page (NOT THE FLOATING BUTTON). It's used to select which tools are allowed in the toolbar. 
 
 - `App.tsx` - handles all of the tool toggling and UI for the popup with `index.css`.
 
