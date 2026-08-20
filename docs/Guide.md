@@ -6,6 +6,7 @@ This guide exists for folks to have success when learning how to work with the f
 YOU HAVE TO BE IN THIS FILE TO RUN ANY NPM COMMANDS. Any programming however, will primarily be working in the src folder, feel free to skip to that.
 ### Easily explained folders within
 - [OBSOLETE] `/bug_documentation/...` - This folder contains early documentation for bugs but has now been replaced by our implementation board in the repo `BonitaText/Projects/Implementation Board`
+  
 - [IGNORE] `/coverage/...` - This folder deals with all coverage calculations and output. The coverage report can be viewed in repo website.
 - `/dist/...` - This folder is updated when running `npm run build`, it contains the distributable code that needs to be zipped and "load unpacked" when adding it to your browser.
 - [IGNORE] `/docs/...` - Like `coverage`, this folder handles all the typedocs output which is best viewed in repo website.
