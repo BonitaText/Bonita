@@ -13,7 +13,7 @@ YOU HAVE TO BE IN THIS FILE TO RUN ANY NPM COMMANDS. Any programming however, wi
   
 - [IGNORE] `/docs/...` - Like `coverage`, this folder handles all the typedocs output which is best viewed in repo website.
   
-- [IGNORE] `/node_modules/...` - This folder is created when running `npm run build`, occasionally your branch can have issues merging with main because of version mismatches etc, but you will never have to touch anything in the folder directly.
+- [IGNORE] `/node_modules/...` - This folder is created when running `npm ci`, occasionally your branch can have issues merging with main because of version mismatches etc, but you will never have to touch anything in the folder directly.
   
 - `/public/...` - Contains images, scripts, icons that don't ever change during the build process. In our case the logo is here, and the dyslexic font.
   
@@ -55,8 +55,8 @@ This folder has everything to do with the toolbar (also called the dock, and flo
 
 - `content/hooks/` - Glue layer that watches user settings and calls into `utils/`. Little backend logic.
 
-- `content/utils/` — **ALMOST ALL BACKEND LOGIC HERE** - Each file = one feature. They take the page DOM as input, mutate it, and have a corresponding "remove" to undo.\
-    *If I want to fix bolding logic, I look here.*
+- `content/utils/` — **ALMOST ALL BACKEND LOGIC HERE** - Each file = one feature. They take the page DOM as input, mutate it, and have a corresponding "remove" to undo. TTS has no logic in here, instead it's in views\
+    *If I want to fix bolding/poshighlighting/wordsimplfication/sentencesplitting logic, I look here.*
 
 - `content/views/` - Visual UI pieces (the dock, toggles, popup menus). Has NOTHING to do with backend logic whasoever.\
 *If I want to fix a weird bug that happens when I am interacting with the UI itself, it will be fixed here.*
