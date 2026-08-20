@@ -61,7 +61,7 @@ Files within folders are basically named based on the tools they depend on. Exce
 - `content/views/` - Visual UI pieces (the dock, toggles, popup menus). Has NOTHING to do with backend logic whasoever.
 
     - `App.tsx` - like the "main function" of this folder, it puts all the tools UI code together to create toolbar. Any issues with the toolbar as a whole will be dealt with here.\
-    *If I want to fix a weird bug that happens when I am interacting with the UI itself, it will be fixed here.*
+*If I want to fix a weird bug that happens when I am interacting with the UI itself, it will be fixed here.*
 
 - `content/main.tsx` - Entry point — boots the whole content script.
 
