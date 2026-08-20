@@ -1,9 +1,9 @@
 ## Guide for all Folders
 
-This guide exists for folks to have success when learning how to work with the files for the extension. 
+This guide exists for folks to have success when learning how to work with the codebase.
 
 ## `text-reader-app/frontend`
-YOU HAVE TO BE IN THIS FILE TO RUN ANY NPM COMMANDS. Any programming however, will primarily be working in the src folder, feel free to skip to that.
+YOU HAVE TO BE IN THIS FILE TO RUN ANY NPM COMMANDS. Any programming however, will primarily be done in the src folder, feel free to skip to that.
 ### Easily explained folders within
 - [OBSOLETE] `/bug_documentation/...` - This folder contains early documentation for bugs but has now been replaced by our implementation board in the repo `BonitaText/Projects/Implementation Board`
   
