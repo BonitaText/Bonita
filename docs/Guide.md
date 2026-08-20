@@ -55,12 +55,12 @@ Files within folders are basically named based on the tools they depend on. Exce
 
 - `content/hooks/` - Glue layer that watches user settings and calls into `utils/`. Little backend logic.
 
-- `content/utils/` — **ALMOST ALL BACKEND LOGIC HERE** - Each file = one feature. They take the page DOM as input, mutate it, and have a corresponding "remove" to undo.\\
+- `content/utils/` — **ALMOST ALL BACKEND LOGIC HERE** - Each file = one feature. They take the page DOM as input, mutate it, and have a corresponding "remove" to undo.\
     *If I want to fix bolding logic, I look here.*
 
 - `content/views/` - Visual UI pieces (the dock, toggles, popup menus). Has NOTHING to do with backend logic whasoever.
 
-    - `App.tsx` - like the "main function" of this folder, it puts all the tools UI code together to create toolbar. Any issues with the toolbar as a whole will be dealt with here.\\ 
+    - `App.tsx` - like the "main function" of this folder, it puts all the tools UI code together to create toolbar. Any issues with the toolbar as a whole will be dealt with here.\
     *If I want to fix a weird bug that happens when I am interacting with the UI itself, it will be fixed here.*
 
 - `content/main.tsx` - Entry point — boots the whole content script.
