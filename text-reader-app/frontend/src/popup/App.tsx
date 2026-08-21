@@ -27,7 +27,6 @@ import {
   List,
   Palette,
   ScanLine,
-  Sparkles,
   Type,
   Volume2,
 } from 'lucide-react'
@@ -40,6 +39,7 @@ import {
   ToolId,
 } from '@/shared/settings'
 import ReportIssue from './ReportIssue'
+import bonitaLogo from '../assets/BONITA_logo_wB.png'
 
 /**
  * Describes one feature card in the popup grid.
@@ -166,13 +166,7 @@ function App() {
   return (
     <main className="popup-shell">
       <section className="popup-hero">
-        <div className="brand-mark">
-          <Sparkles size={21} strokeWidth={2} />
-        </div>
-        <div>
-          <p>Bonita</p>
-          <span>Readable web overlay</span>
-        </div>
+        <img className="popup-logo" src={bonitaLogo} alt="Bonita" />
       </section>
 
 

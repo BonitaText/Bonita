@@ -42,7 +42,9 @@ export interface BonitaSettings {
   /** Global enable flag (currently unused at the settings layer; site-level
    *  opt-in is managed via `sessionStorage` in the overlay). */
   enabled: boolean
-
+  
+  /** Whether the overlay UI (trigger + dock) renders in dark mode. */
+  darkMode: boolean
   /**
    * Controls which tool icons are shown in the toolbar dock, independent of
    * whether a visible tool is currently *active* on the page.
@@ -152,6 +154,7 @@ const defaultEnabledTools: Record<ToolId, boolean> = {
  */
 export const defaultSettings: BonitaSettings = {
   enabled: false,
+  darkMode: false,
   enabledTools: defaultEnabledTools,
   font: 'default',
   sentenceSplitting: false,

@@ -90,6 +90,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '../hooks/useSettings'
 
+import lightButtonIcon from '../../assets/dock/light_button_2000.png'
+import darkButtonIcon from '../../assets/dock/dark_button_2000.png'
+
 import FontSelector from './FontSelector'
 import LineFocusToggle from './LineFocusToggle'
 import PhraseBolding from './PhraseBolding'
@@ -103,7 +106,7 @@ import WordSimplify from './WordSimplify'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Point size of the square trigger button (width = height, and 1 pt = 1.3333... px). */
-const TRIGGER_SIZE = 58
+const TRIGGER_SIZE = 75
 
 /** Default distance from the right and bottom viewport edges on first render. */
 const DEFAULT_MARGIN = 40
@@ -125,14 +128,14 @@ const EDGE_SNAP_THRESHOLD = 70
  * Width (px) of the trigger that remains visible when tucked against the
  * left edge — the rest is pushed off-screen.
  */
-const TUCK_PEEK_LEFT = 10
+const TUCK_PEEK_LEFT = 25
 
 /**
  * Width (px) of the trigger that remains visible when tucked against the
  * right edge — the rest is pushed off-screen. Independent of
  * {@link TUCK_PEEK_LEFT} so each edge can show a different amount.
  */
-const TUCK_PEEK_RIGHT = 24
+const TUCK_PEEK_RIGHT = 25
 
 // ─── Storage helpers ────────────────────────────────────────────────────────
 
@@ -155,6 +158,17 @@ const SESSION_KEY = 'bonita-site-enabled'
  * `useSettings`), so no manifest change is needed.
  */
 const POS_KEY = 'bonita-trigger-pos'
+
+/**
+ * `chrome.storage.local` key for the shared DPR baseline used by
+ * `useZoomCorrection` to counter page-zoom's effect on apparent trigger
+ * size. Shared across all tabs (not captured fresh per tab-mount) so a tab
+ * that happens to load already zoomed to 200% renders the trigger at the
+ * SAME physical size as a tab that loaded at 100% — previously each tab
+ * treated whatever DPR it woke up at as "normal," so two tabs loaded at
+ * different zoom levels disagreed on what size counted as unscaled.
+ */
+ const DPR_BASELINE_KEY = 'bonita-dpr-baseline'
 
 /**
  * Reads whether Bonita is enabled for the current hostname from
@@ -196,19 +210,47 @@ function setSiteEnabled(value: boolean): void {
 }
 
 /**
- * Shape persisted for the trigger's on-screen position and tucked state.
- */
+* Live, in-memory position (CSS px) — used for rendering, dragging, and
+* resize-clamping math. Never written to storage directly; see
+* {@link StoredTriggerPos} / {@link toStoredPos} / {@link applySavedPos}.
+*/
 interface TriggerPos {
   left: number
   top: number
-  /** Which edge the trigger is tucked against, or `null` if not tucked. */
   tuckedSide: 'left' | 'right' | null
+}
+
+/**
+ * Shape persisted to `chrome.storage.local`.
+ *
+ * Position is stored as FRACTIONS of the viewport (0–1), not absolute CSS
+ * pixels — deliberately. CSS px are relative to that tab's current zoom
+ * level, so a raw-px position saved from a tab at 100% zoom lands in the
+ * wrong physical spot when applied to a tab at 200% zoom. "50% across" is
+ * the physical center of the window regardless of zoom, so storing
+ * fractions makes the saved spot zoom-invariant automatically — no DPR
+ * math required for position, only for the separate size correction (see
+ * `useZoomCorrection`'s shared baseline below).
+ */
+interface StoredTriggerPos {
+  leftFrac: number
+  topFrac: number
+  tuckedSide: 'left' | 'right' | null
+}
+
+/** Converts live px position → the fraction-based shape written to storage. */
+function toStoredPos(p: TriggerPos): StoredTriggerPos {
+  return {
+    leftFrac: p.left / window.innerWidth,
+    topFrac: p.top / window.innerHeight,
+    tuckedSide: p.tuckedSide,
+   }
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = `
-  :root {
+    :host {
     --bonita-purple: #6f4fd8;
     --bonita-purple-dark: #2d2148;
     --bonita-cream: #f7f0df;
@@ -216,40 +258,73 @@ const styles = `
     --bonita-grey: #716b7b;
     --bonita-black: #17131f;
   }
+  
+  .bonita-vv-anchor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    transform-origin: 0 0;
+    pointer-events: none;
+  }
+
+  .bonita-pos-anchor {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 58px;   
+    height: 58px;
+    pointer-events: none;
+    transform: scale(var(--bonita-zoom, 1));
+    transform-origin: 0 0;
+  }
 
   .bonita-trigger {
-    position: fixed;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 58px;
     height: 58px;
     border-radius: 18px;
-    background:
-      radial-gradient(circle at 28% 24%, rgba(255, 253, 248, 0.44), transparent 28px),
-      linear-gradient(145deg, #8061ee, #4b2fa2);
-    border: 1px solid rgba(255, 253, 248, 0.42);
+    background: transparent;
+    border: none;
     cursor: grab;
     pointer-events: auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 18px 44px rgba(45, 33, 72, 0.36);
     z-index: 2147483647;
-    transition: left 0.25s ease, transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease, opacity 0.22s ease;
-    color: white;
-    font-weight: 900;
-    font-size: 20px;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    user-select: none;
+    transition: left 0.25s ease, transform 0.3s ease, filter 0.22s ease, opacity 0.22s ease, border-radius 0.25s ease;
+    overflow: hidden;
+    transform: rotate(var(--bonita-rotation, 0deg));
+    box-shadow: 0px 0px 30px rgba(23, 19, 31, 0.40);
   }
+
+  .bonita-trigger-icon {
+    width: 140%;
+    height: 140%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    transition: filter 0.22s ease;
+  }
+
+
 
   .bonita-trigger:active { cursor: grabbing; }
 
   .bonita-trigger:hover {
-    transform: translateY(-3px) scale(1.04);
-    box-shadow: 0 22px 54px rgba(45, 33, 72, 0.44);
+    transform: rotate(var(--bonita-rotation, 0deg)) translateY(-3px) scale(1.04);
+    box-shadow: 0px 0px 30px rgba(23, 19, 31, 0.40);
+  }
+
+  .bonita-trigger:hover .bonita-trigger-icon {
     filter: saturate(1.08);
   }
 
   .bonita-trigger.open { border-radius: 50%; }
+
 
   /* Disables the position transition for the duration of an active drag so
    * live movement tracks the pointer exactly; state-driven (via isDragging)
@@ -267,7 +342,7 @@ const styles = `
   .bonita-trigger.tucked-right {
     opacity: 0.5;
     cursor: pointer;
-    box-shadow: 0 10px 24px rgba(45, 33, 72, 0.30);
+    box-shadow: 0 0px 40px rgba(19, 9, 44, 0.9);
   }
 
   .bonita-trigger.tucked-left:hover,
@@ -278,18 +353,10 @@ const styles = `
   .bonita-trigger.tucked-left { border-radius: 0 16px 16px 0; }
   .bonita-trigger.tucked-right { border-radius: 16px 0 0 16px; }
 
-  .bonita-trigger-mark {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
-    background: rgba(255, 253, 248, 0.16);
-    box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.18);
-  }
-
   .bonita-dock {
-    position: fixed;
+    position: absolute;
+    left: -5px;
+    bottom: calc(100% + 10px);
     box-sizing: border-box;
     width: 70px;
     min-width: 70px;
@@ -546,6 +613,7 @@ function App() {
   /** Whether the dock is currently visible. */
   const [open, setOpen] = useState(false)
 
+
   /**
    * Screen coordinates of the trigger button's top-left corner, plus which
    * edge (if any) it's currently tucked against.
@@ -562,6 +630,9 @@ function App() {
     top: window.innerHeight - TRIGGER_SIZE - DEFAULT_MARGIN,
     tuckedSide: null,
   })
+
+  const zoomScale = useZoomCorrection()
+  const vv = useVisualViewportCorrection() 
 
   /**
    * True once the initial `chrome.storage.local` read has resolved, so the
@@ -609,6 +680,9 @@ function App() {
 
   const { settings, updateSettings, ready } = useSettings()
 
+  const triggerIcon = chrome.runtime.getURL(
+    settings.darkMode ? darkButtonIcon : lightButtonIcon
+  )
   /**
    * Convenience lookup for dock-icon visibility, sourced from the popup via
    * {@link BonitaSettings.enabledTools}. Falls back to showing every tool if
@@ -638,13 +712,16 @@ function App() {
    * since the value was saved. Shared by both the initial load and the
    * cross-tab sync listener below.
    */
-  const applySavedPos = (saved: TriggerPos): void => {
+  const applySavedPos = (saved: StoredTriggerPos): void => {
+    if (typeof saved.leftFrac !== 'number' || typeof saved.topFrac !== 'number') return
+
+    const top = saved.topFrac * window.innerHeight
     if (saved.tuckedSide === 'left') {
-      setPos({ left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: saved.top, tuckedSide: 'left' })
+      setPos({ left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top, tuckedSide: 'left' })
     } else if (saved.tuckedSide === 'right') {
-      setPos({ left: window.innerWidth - TUCK_PEEK_RIGHT, top: saved.top, tuckedSide: 'right' })
+      setPos({ left: window.innerWidth - TUCK_PEEK_RIGHT, top, tuckedSide: 'right' })
     } else {
-      setPos({ left: saved.left, top: saved.top, tuckedSide: null })
+      setPos({ left: saved.leftFrac * window.innerWidth, top, tuckedSide: null })
     }
   }
 
@@ -656,7 +733,7 @@ function App() {
    */
   useEffect(() => {
     chrome.storage.local.get(POS_KEY, (result) => {
-      const saved = result[POS_KEY] as TriggerPos | undefined
+      const saved = result[POS_KEY] as StoredTriggerPos | undefined
       if (saved) applySavedPos(saved)
       setPosReady(true)
     })
@@ -676,45 +753,148 @@ function App() {
       area: string,
     ) => {
       if (area !== 'local' || !changes[POS_KEY] || isDraggingRef.current) return
-      const saved = changes[POS_KEY].newValue as TriggerPos | undefined
+      const saved = changes[POS_KEY].newValue as StoredTriggerPos | undefined
       if (saved) applySavedPos(saved)
     }
     chrome.storage.onChanged.addListener(onStorageChange)
     return () => chrome.storage.onChanged.removeListener(onStorageChange)
   }, [])
 
+  function useVisualViewportCorrection() {
+    const [vv, setVv] = useState({ x: 0, y: 0, scale: 1 })
+
+    useEffect(() => {
+      const viewport = window.visualViewport
+      if (!viewport) return
+
+      const update = () => {
+        setVv({ x: viewport.offsetLeft, y: viewport.offsetTop, scale: viewport.scale })
+      }
+      update()
+      viewport.addEventListener('resize', update)
+      viewport.addEventListener('scroll', update)
+      return () => {
+        viewport.removeEventListener('resize', update)
+        viewport.removeEventListener('scroll', update)
+      }
+    }, [])
+
+    return vv
+  }
+
   /**
-   * Re-clamps the trigger position within the viewport on resize.
+   * Tracks browser page-zoom (Ctrl +/-, Ctrl+scroll) and keeps both the
+   * trigger's visual scale AND its CSS-pixel position correct as DPR changes —
+   * in a single matchMedia listener, so they always update together in the
+   * same render. (Previously these were two separate hooks/listeners; even
+   * though both react to the same DPR change, nothing guaranteed they'd land
+   * in the same React commit, so the dock — whose position and scale both
+   * derive from these two values — could visibly separate from the trigger
+   * for a frame on each discrete zoom step.)
    *
-   * Handles split-screen, fullscreen transitions, and window resizing. A
-   * tucked trigger is re-pinned to its edge (recomputing `left` from the new
-   * viewport width) rather than clamped like a normal position, since
-   * clamping would pull it back fully on-screen. An untucked trigger snaps
-   * to the nearest valid in-bounds position instead of drifting off-screen.
+   * Returns the scale factor to counter apparent size change (1 at baseline,
+   * <1 when zoomed in, >1 when zoomed out). Also rescales pos.left/pos.top by
+   * the DPR ratio so the trigger stays in the same physical screen location.
+   */
+  function useZoomCorrection(): number {
+    const baselineDPR = useRef<number | null>(null)
+    const [scale, setScale] = useState(1)
+
+    useEffect(() => {
+      let prevDPR = window.devicePixelRatio
+      let mql: MediaQueryList
+
+      const applyScale = () => {
+        if (baselineDPR.current == null) return
+        setScale(baselineDPR.current / window.devicePixelRatio)
+      }
+
+      // Resolve the SHARED baseline once, from storage, instead of just
+      // reading window.devicePixelRatio at mount. The first tab ever to run
+      // this seeds it for every tab thereafter.
+      chrome.storage.local.get(DPR_BASELINE_KEY, (result) => {
+        let baseline = result[DPR_BASELINE_KEY] as number | undefined
+        if (baseline == null) {
+          baseline = window.devicePixelRatio
+          chrome.storage.local.set({ [DPR_BASELINE_KEY]: baseline })
+        }
+        baselineDPR.current = baseline
+        applyScale()
+      })
+    
+
+      const onZoomChange = () => {
+        const newDPR = window.devicePixelRatio
+        const ratio = prevDPR / newDPR
+
+        applyScale()
+
+        if (ratio !== 1) {
+          setPos(prev =>
+            prev.tuckedSide
+              ? prev
+              : { ...prev, left: prev.left * ratio, top: prev.top * ratio },
+          )
+        }
+
+        prevDPR = newDPR
+        mql = matchMedia(`(resolution: ${newDPR}dppx)`)
+        mql.addEventListener('change', onZoomChange, { once: true })
+      }
+
+      mql = matchMedia(`(resolution: ${prevDPR}dppx)`)
+      mql.addEventListener('change', onZoomChange, { once: true })
+      return () => mql?.removeEventListener('change', onZoomChange)
+    }, [])
+
+    return scale
+  }
+
+  /**
+   * Re-clamps the trigger position within the viewport on resize AND on
+   * pinch/ctrl zoom.
    *
-   * Note this only updates local `pos` state, not `chrome.storage.local` —
-   * a resize in one tab shouldn't relocate the trigger in every other tab,
-   * since each tab/window can have a different viewport size.
+   * `window`'s `resize` event covers layout-viewport changes (window resize,
+   * split-screen, fullscreen). It does NOT reliably fire for pinch-zoom or
+   * ctrl+scroll zoom in Chrome, since those change the *visual* viewport's
+   * scale without necessarily changing layout viewport dimensions. Those are
+   * instead reported via `window.visualViewport`'s own `resize` event. We
+   * listen on both and prefer `visualViewport` dimensions when available,
+   * since at extreme zoom levels they reflect what's actually visible more
+   * accurately than `window.innerWidth`/`innerHeight`.
+   *
+   * Without this, zooming out, dragging the trigger near an edge, then
+   * zooming back in can leave it clamped against coordinates that are now
+   * off-screen — effectively invisible until dragged again.
    */
   useEffect(() => {
+    const getViewport = () => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })
+
     const onResize = () => {
+      const { width, height } = getViewport()
       setPos(prev => {
-        const top = Math.max(0, Math.min(window.innerHeight - TRIGGER_SIZE, prev.top))
+        const top = Math.max(0, Math.min(height - TRIGGER_SIZE, prev.top))
         if (prev.tuckedSide === 'left') {
           return { ...prev, left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top }
         }
         if (prev.tuckedSide === 'right') {
-          return { ...prev, left: window.innerWidth - TUCK_PEEK_RIGHT, top }
+          return { ...prev, left: width - TUCK_PEEK_RIGHT, top }
         }
         return {
           ...prev,
-          left: Math.max(0, Math.min(window.innerWidth - TRIGGER_SIZE, prev.left)),
+          left: Math.max(0, Math.min(width - TRIGGER_SIZE, prev.left)),
           top,
         }
       })
     }
+
     window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+    }
   }, [])
 
   /**
@@ -795,17 +975,21 @@ function App() {
    *
    * The listener is registered on `document` in capture phase so it fires
    * before any internal click handlers.  It is only active while the dock is
-   * open, avoiding a permanent global listener when the dock is closed.
+   * open, avoiding a permanent global listener when the dock is closed. Also
+   * resets the trigger's rotation back to 0° so it returns to its resting
+   * orientation whenever the dock closes this way.
    */
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
+      const path = e.composedPath()
       if (
-        triggerRef.current?.contains(e.target as Node) ||
-        dockRef.current?.contains(e.target as Node)
+        (triggerRef.current && path.includes(triggerRef.current)) ||
+        (dockRef.current && path.includes(dockRef.current))
       )
         return
       setOpen(false)
+      setRotation(0)
     }
     document.addEventListener('mousedown', handler, true)
     return () => document.removeEventListener('mousedown', handler, true)
@@ -836,6 +1020,45 @@ function App() {
   })
 
   /**
+   * Current rotation angle (in degrees) applied to the trigger button.
+   *
+   * This is a plain (non-wrapped) numeric value, not just 0/90/180/etc as
+   * fixed states — CSS animates the raw difference between old and new
+   * values, so decreasing it later naturally spins the button backward
+   * through the same path it took to get there ("retracing").
+   *
+   * - `0`   — dock closed (rest position).
+   * - `90`  — dock open, tools off.
+   * - `450` — dock open, tools on (90 + one extra full turn, so opening
+   *   with tools already on, or toggling tools on while open, both spin
+   *   forward an extra 360° past the 90° "tools off" position rather than
+   *   jumping backward to 270°).
+   *
+   * Toggling tools off while the dock is open retraces from 450 back to 90.
+   * Closing the dock (from either 90 or 450) always retraces all the way
+   * back to 0.
+   */
+  const [rotation, setRotation] = useState(0)
+
+  /**
+   * Keeps the trigger's rotation in sync when the site-enable toggle
+   * changes *while the dock is already open*.
+   *
+   * Turning tools on while open spins forward from 90° to 450° (an extra
+   * full turn). Turning tools back off while still open retraces that same
+   * turn, back down to 90°. Values outside these two cases (0, or already
+   * mid-transition) are left alone.
+   */
+  useEffect(() => {
+    if (!open) return
+    if (siteEnabled && rotation === 90) {
+      setRotation(450)
+    } else if (!siteEnabled && rotation === 450) {
+      setRotation(90)
+    }
+  }, [siteEnabled, open])
+
+  /**
    * Handles `mousedown` on the trigger button.
    *
    * Distinguishes between a **click** and a **drag** by tracking pointer
@@ -845,11 +1068,14 @@ function App() {
    *   un-tucks it immediately so it follows the cursor normally. On release,
    *   dropping within {@link EDGE_SNAP_THRESHOLD}px of the left or right edge
    *   snaps and tucks the trigger against that edge (and closes the dock if
-   *   it was open); otherwise it settles wherever it was dropped.
+   *   it was open, resetting rotation to 0°); otherwise it settles wherever
+   *   it was dropped.
    * - `mouseup` without exceeding the threshold → click. If the trigger is
    *   currently tucked, this slides it back to a fully visible position
    *   (rather than opening the dock) and it stays there until dragged near
-   *   an edge again. Otherwise it toggles `open` as before.
+   *   an edge again. Otherwise it toggles `open` as before, and sets
+   *   `rotation` to 90° (tools off) or 450° (tools already on) when opening,
+   *   or back to 0° when closing.
    *
    * `isDragging` is `true` for the duration of an active drag, which adds
    * the `.dragging` class (disabling the position transition) so live
@@ -925,9 +1151,17 @@ function App() {
               : window.innerWidth - TRIGGER_SIZE - DEFAULT_MARGIN
           const next: TriggerPos = { left: untuckedLeft, top: s.lastTop, tuckedSide: null }
           setPos(next)
-          chrome.storage.local.set({ [POS_KEY]: next })
-        } else {
-          setOpen(o => !o)
+          chrome.storage.local.set({ [POS_KEY]: toStoredPos(next) })
+          } else {
+          // Toggling the dock open/closed also drives the trigger's
+          // rotation: opening sets it to 90° (tools off) or 450° (tools
+          // already on, one extra full turn past 90°); closing always
+          // retraces back to 0°.
+          setOpen(o => {
+            const next = !o
+            setRotation(next ? (siteEnabled ? 450 : 90) : 0)
+            return next
+          })
         }
         return
       }
@@ -937,31 +1171,21 @@ function App() {
       if (s.lastLeft < EDGE_SNAP_THRESHOLD) {
         next = { left: -(TRIGGER_SIZE - TUCK_PEEK_LEFT), top: s.lastTop, tuckedSide: 'left' }
         setOpen(false) // close the dock whenever the trigger tucks
+        setRotation(0)
       } else if (s.lastLeft > window.innerWidth - TRIGGER_SIZE - EDGE_SNAP_THRESHOLD) {
         next = { left: window.innerWidth - TUCK_PEEK_RIGHT, top: s.lastTop, tuckedSide: 'right' }
         setOpen(false) // close the dock whenever the trigger tucks
+        setRotation(0)
       } else {
         next = { left: s.lastLeft, top: s.lastTop, tuckedSide: null }
       }
       setPos(next)
-      chrome.storage.local.set({ [POS_KEY]: next })
+      chrome.storage.local.set({ [POS_KEY]: toStoredPos(next) })
     }
 
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   }
-
-  /**
-   * Positions the dock from the same anchor coordinates as the trigger.
-   *
-   * Using the same left/top coordinate system prevents drift when the
-   * viewport size or browser zoom changes.
-   */
-
-  
-
-  const dockLeft = pos.left - 6
-  const dockBottom = window.innerHeight - (pos.top - 10)
 
   // Don't render the trigger until the initial chrome.storage.local read has
   // resolved — otherwise it would flash at the default corner for a frame
@@ -972,29 +1196,37 @@ function App() {
     <>
       <style>{styles}</style>
 
-      <button
-        ref={triggerRef}
-        className={`bonita-trigger ${open ? 'open' : ''} ${isDragging ? 'dragging' : ''} ${
-          pos.tuckedSide === 'left' ? 'tucked-left' : pos.tuckedSide === 'right' ? 'tucked-right' : ''
-        }`}
-        style={{ left: pos.left, top: pos.top }}
-        onMouseDown={onMouseDown}
-        title={pos.tuckedSide ? 'Tap to bring back' : 'drag to move'}
-        data-bonita-root="true"
-      >
-        <span className="bonita-trigger-mark">B</span>
-      </button>
-
       <div
-        ref={dockRef}
-        className={`bonita-dock ${open ? 'open' : ''}`}
-        style={{
-          left: dockLeft,
-          bottom: dockBottom,
-          
-        }}
-        data-bonita-root="true"
+        className="bonita-vv-anchor"
+        style={{ transform: `translate(${vv.x}px, ${vv.y}px) scale(${1 / vv.scale})` }}
       >
+        <div
+          className="bonita-pos-anchor"
+          style={{ left: pos.left, top: pos.top, '--bonita-zoom': zoomScale } as React.CSSProperties}
+        >
+          <button
+            ref={triggerRef}
+            className={`bonita-trigger ${open ? 'open' : ''} ${isDragging ? 'dragging' : ''} ${
+              pos.tuckedSide === 'left' ? 'tucked-left' : pos.tuckedSide === 'right' ? 'tucked-right' : ''
+            }`}
+            style={{ '--bonita-rotation': `${rotation}deg` } as React.CSSProperties}
+            onMouseDown={onMouseDown}
+            title={pos.tuckedSide ? 'Tap to bring back' : 'drag to move'}
+            data-bonita-root="true"
+          >
+            <img
+              className="bonita-trigger-icon"
+              src={triggerIcon}
+              alt="Bonita"
+              draggable={false}
+            />
+          </button>
+
+          <div
+            ref={dockRef}
+            className={`bonita-dock ${open ? 'open' : ''}`}
+            data-bonita-root="true"
+          >
         <div className="bonita-dock-header">
           <strong>Bonita</strong>
           <span>
@@ -1040,7 +1272,7 @@ function App() {
          */}
         {siteEnabled && ready && (
           <>
-          <ReadingToolsController />   {/* ← add this */}
+          <ReadingToolsController />  
           <div className="bonita-divider" />
           {toolVisible.sentenceSplitting && (
             <div onClick={() => setOpenPopup(null)}>
@@ -1088,10 +1320,11 @@ function App() {
             />
           )}
           </>
-        )}
+          )}
+        </div>
       </div>
-    </>
-  )
-}
+    </div>
+  </>
+)}
 
 export default App
