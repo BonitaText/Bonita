@@ -70,6 +70,34 @@ function removeAll(): void {
 }
 
 /**
+ * Minimum time (ms) the loading spinner stays visible once shown, so a fast
+ * pass can't flash it away before the user perceives it.
+ */
+const MIN_SPINNER_MS = 400
+
+/**
+ * Resolves once the browser has had a chance to paint at least one frame.
+ *
+ * Uses a double `requestAnimationFrame` — the first callback runs before a
+ * paint and schedules the second, which runs only after that paint has
+ * happened — with a `setTimeout` fallback so it still resolves in background
+ * tabs where rAF is throttled and would otherwise never fire (leaving the
+ * spinner stuck on).
+ */
+function nextPaint(): Promise<void> {
+  return new Promise(resolve => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    requestAnimationFrame(() => requestAnimationFrame(finish))
+    setTimeout(finish, 100)
+  })
+}
+
+/**
  * Coordinates all reading-tool DOM passes in a guaranteed order so that
  * sentence splitting (which restructures the DOM) always runs before the
  * annotation passes that depend on a stable DOM.
@@ -111,6 +139,7 @@ export function useReadingTools(): boolean {
   useEffect(() => {
     let cancelled = false
     let timerId: ReturnType<typeof setTimeout>
+    let hideTimerId: ReturnType<typeof setTimeout> | null = null
 
     timerId = setTimeout(() => {
       if (cancelled) return
@@ -132,37 +161,60 @@ export function useReadingTools(): boolean {
       }
 
       // ── 4-5. Async passes (phrase bolding + word underlines) ─────────────
-      // Both are network / CPU bound (dictionary loads and look-ups), so track
-      // them together and surface a loading sign until every pass settles.
-      const pending: Promise<unknown>[] = []
+      // Both are network / CPU bound (dictionary loads and heavy synchronous
+      // NLP / DOM work). The loading sign used to race paint-timing: on slower
+      // machines the blocking work ran before the spinner ever painted, so it
+      // never showed at all. To make it reliable we:
+      //   1. flip busy on and WAIT for the browser to actually paint the
+      //      spinner (nextPaint) BEFORE kicking off the blocking work, so it is
+      //      on-screen even while the main thread is later blocked;
+      //   2. keep it up for at least MIN_SPINNER_MS so a fast pass can't flash
+      //      it away before the user perceives it.
+      const hasAsync = s.keywordBolding || s.wordSimplification
+      if (!hasAsync) return
 
-      if (s.keywordBolding) {
-        pending.push(
-          extractKeywords(getBodyParagraphs()).then(scored => {
-            if (!cancelled) return applyPhraseBolding(scored, s.boldThresholdPercent ?? 50)
-          }),
-        )
-      }
-
-      if (s.wordSimplification) {
-        pending.push(
-          getFreqMap().then(freq => {
-            if (!cancelled) return applyWordUnderlines(freq, s.wordComplexity, () => cancelled)
-          }),
-        )
-      }
-
-      if (pending.length > 0) {
+      void (async () => {
         setBusy(true)
-        Promise.allSettled(pending).then(() => {
+        await nextPaint()
+        if (cancelled) {
+          setBusy(false)
+          return
+        }
+
+        const shownAt = performance.now()
+        const pending: Promise<unknown>[] = []
+
+        if (s.keywordBolding) {
+          pending.push(
+            extractKeywords(getBodyParagraphs()).then(scored => {
+              if (!cancelled) return applyPhraseBolding(scored, s.boldThresholdPercent ?? 50)
+            }),
+          )
+        }
+
+        if (s.wordSimplification) {
+          pending.push(
+            getFreqMap().then(freq => {
+              if (!cancelled) return applyWordUnderlines(freq, s.wordComplexity, () => cancelled)
+            }),
+          )
+        }
+
+        await Promise.allSettled(pending)
+
+        // Hide only after the spinner has been visible for at least
+        // MIN_SPINNER_MS (0 extra wait when the work already took longer).
+        const remaining = Math.max(0, MIN_SPINNER_MS - (performance.now() - shownAt))
+        hideTimerId = setTimeout(() => {
           if (!cancelled) setBusy(false)
-        })
-      }
+        }, remaining)
+      })()
     }, 0)
 
     return () => {
       cancelled = true
       clearTimeout(timerId)
+      if (hideTimerId) clearTimeout(hideTimerId)
       removeAll()
       setBusy(false)
     }
