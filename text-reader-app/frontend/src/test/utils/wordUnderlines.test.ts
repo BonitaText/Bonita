@@ -13,6 +13,15 @@
  *   'lite', between COMPLEXITY_THRESHOLDS.medium=3 and HIGH_CONFIDENCE_THRESHOLD=5).
  * - synonymCache/fetchWordInfo: mocked to control hover-handler async flow
  *   without real network calls.
+ *
+ * ## Content-root note
+ * getContentRoot() (contentRoot.ts) only trusts a landmark element
+ * (<main>, <article>, [role="main"], #content, .content) when it holds at
+ * least 200 characters of text, and it caches its result. The root-selection
+ * tests therefore pad their landmark with FILLER, put a sibling paragraph
+ * OUTSIDE the landmark, and assert that the outside text is left alone —
+ * otherwise a silent fallback to <body> would make every test pass. resetDOM()
+ * also calls invalidateContentRootCache() so tests don't depend on run order.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -22,6 +31,7 @@ import {
   applyWordUnderlines,
   removeWordUnderlines,
 } from '../../content/utils/wordUnderlines'
+import { invalidateContentRootCache } from '../../content/utils/contentRoot'
 import { fetchWordInfo as _fetchWordInfo } from '../../content/utils/synonymCache'
 const fetchWordInfo = _fetchWordInfo as unknown as ReturnType<typeof vi.fn>
 
@@ -62,9 +72,17 @@ const MARKER_CLASS = 'bonita-complex-word'
 const POPUP_ID     = 'bonita-synonym-popup'
 const mockFreq     = new Map<string, number>()
 
+/**
+ * Filler prose with no "complex" words (the mock scores them 0). Pads a
+ * landmark past getContentRoot()'s 200-character minimum (MIN_ROOT_CHARS).
+ * 19 chars × 15 = 285.
+ */
+const FILLER = 'plain filler words '.repeat(15)
+
 function resetDOM() {
   document.body.innerHTML = ''
   document.getElementById(POPUP_ID)?.remove()
+  invalidateContentRootCache()
 }
 
 function makeMain(html: string): HTMLElement {
@@ -162,6 +180,11 @@ describe('removeWordUnderlines', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // applyWordUnderlines — content root selection
+//
+// Each landmark is padded with FILLER (>= 200 chars) so getContentRoot()
+// accepts it, and each test has a sibling paragraph OUTSIDE the landmark that
+// must stay untouched. Without the outside assertion these tests would also
+// pass if the root silently fell back to <body>.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('applyWordUnderlines — content root selection', () => {
@@ -169,7 +192,7 @@ describe('applyWordUnderlines — content root selection', () => {
 
   it('prefers <main> when present', () => {
     const outside = makeParagraph('ubiquitous word outside')
-    const main    = makeMain('<p>ubiquitous word inside</p>')
+    const main    = makeMain(`<p>ubiquitous word inside</p><p>${FILLER}</p>`)
 
     applyWordUnderlines(mockFreq, 'medium')
 
@@ -177,43 +200,74 @@ describe('applyWordUnderlines — content root selection', () => {
     expect(main.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
   })
 
-  it('falls back to <article> when no <main>', () => {
-    const article = makeArticle('<p>ubiquitous word in article</p>')
+  it('prefers <main> over <article> when both are present', () => {
+    const article = makeArticle(`<p>ubiquitous word in article</p><p>${FILLER}</p>`)
+    const main    = makeMain(`<p>ubiquitous word in main</p><p>${FILLER}</p>`)
+
     applyWordUnderlines(mockFreq, 'medium')
+
+    expect(main.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
+    expect(article.querySelector(`.${MARKER_CLASS}`)).toBeNull()
+  })
+
+  it('falls back to <article> when no <main>', () => {
+    const outside = makeParagraph('ubiquitous word outside')
+    const article = makeArticle(`<p>ubiquitous word in article</p><p>${FILLER}</p>`)
+
+    applyWordUnderlines(mockFreq, 'medium')
+
     expect(article.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
+    expect(outside.querySelector(`.${MARKER_CLASS}`)).toBeNull()
   })
 
   it('falls back to [role="main"] when no <main> or <article>', () => {
+    const outside = makeParagraph('ubiquitous word outside')
     const div = document.createElement('div')
     div.setAttribute('role', 'main')
-    div.innerHTML = '<p>ubiquitous word in role main</p>'
+    div.innerHTML = `<p>ubiquitous word in role main</p><p>${FILLER}</p>`
     document.body.appendChild(div)
 
     applyWordUnderlines(mockFreq, 'medium')
 
     expect(div.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
+    expect(outside.querySelector(`.${MARKER_CLASS}`)).toBeNull()
   })
 
   it('falls back to #content when nothing else matches', () => {
+    const outside = makeParagraph('ubiquitous word outside')
     const div = document.createElement('div')
     div.id = 'content'
-    div.innerHTML = '<p>ubiquitous word in content div</p>'
+    div.innerHTML = `<p>ubiquitous word in content div</p><p>${FILLER}</p>`
     document.body.appendChild(div)
 
     applyWordUnderlines(mockFreq, 'medium')
 
     expect(div.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
+    expect(outside.querySelector(`.${MARKER_CLASS}`)).toBeNull()
   })
 
   it('falls back to .content class when nothing else matches', () => {
+    const outside = makeParagraph('ubiquitous word outside')
     const div = document.createElement('div')
     div.className = 'content'
-    div.innerHTML = '<p>ubiquitous word in content class</p>'
+    div.innerHTML = `<p>ubiquitous word in content class</p><p>${FILLER}</p>`
     document.body.appendChild(div)
 
     applyWordUnderlines(mockFreq, 'medium')
 
     expect(div.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
+    expect(outside.querySelector(`.${MARKER_CLASS}`)).toBeNull()
+  })
+
+  it('ignores a landmark with too little text and falls back to document.body', () => {
+    // A tiny <main> (< 200 chars) is rejected by getContentRoot(), so text
+    // outside it is still processed via the <body> fallback.
+    const outside = makeParagraph('ubiquitous word outside')
+    makeMain('<p>ubiquitous word inside</p>')
+
+    applyWordUnderlines(mockFreq, 'medium')
+
+    expect(outside.querySelector(`.${MARKER_CLASS}`)).not.toBeNull()
   })
 
   it('falls back to document.body when no semantic root exists', () => {

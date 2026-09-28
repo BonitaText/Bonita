@@ -676,7 +676,7 @@ function App() {
    * Which tool popup is currently open, or `null` if none.
    * At most one popup is open at a time.
    */
-  const [openPopup, setOpenPopup] = useState<'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity' | null>(null)
+  const [openPopup, setOpenPopup] = useState<'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity' | 'sentenceSplitting' | null>(null)
 
   const { settings, updateSettings, ready } = useSettings()
 
@@ -906,7 +906,7 @@ function App() {
    *
    * @param name - The popup identifier to show.
    */
-  const showPopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity'): void =>
+  const showPopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity' | 'sentenceSplitting'): void =>
     setOpenPopup(name)
 
   /**
@@ -919,7 +919,7 @@ function App() {
    *
    * @param name - The popup identifier to hide.
    */
-  const hidePopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity'): void =>
+  const hidePopup = (name: 'bold' | 'pos' | 'font' | 'lineFocus' | 'wordComplexity' | 'sentenceSplitting'): void =>
     setOpenPopup(prev => (prev === name ? null : prev))
 
   /**
@@ -1275,9 +1275,11 @@ function App() {
           <ReadingToolsController />  
           <div className="bonita-divider" />
           {toolVisible.sentenceSplitting && (
-            <div onClick={() => setOpenPopup(null)}>
-              <SentenceSplitting />
-            </div>
+             <SentenceSplitting
+              open={openPopup === 'sentenceSplitting'}
+              onShow={() => showPopup('sentenceSplitting')}
+              onHide={() => hidePopup('sentenceSplitting')}
+            />
           )}
           {toolVisible.keywordBolding && (
             <PhraseBolding

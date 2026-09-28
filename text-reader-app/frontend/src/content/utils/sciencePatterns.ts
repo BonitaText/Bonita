@@ -194,6 +194,7 @@ export function extractSciencePatternTerms(text: string): string[] {
 // ---------------------------------------------------------------------------
 
 export function extractItalicScienceTerms(): string[] {
+  if (typeof document === 'undefined') return []
   const found = new Set<string>()
   const italicEls = document.querySelectorAll('em, i')
 

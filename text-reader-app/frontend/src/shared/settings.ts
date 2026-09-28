@@ -64,6 +64,8 @@ export interface BonitaSettings {
   /** Whether paragraph text is split into per-sentence bullet lists. */
   sentenceSplitting: boolean
 
+  splitThresholdPercent: number
+
   /** Whether bullet-point reformatting is active (distinct from sentence splitting). */
   bulletPoints: boolean
 
@@ -158,6 +160,7 @@ export const defaultSettings: BonitaSettings = {
   enabledTools: defaultEnabledTools,
   font: 'default',
   sentenceSplitting: false,
+  splitThresholdPercent: 50,
   bulletPoints: false,
   keywordBolding: false,
   boldTargetCount: 7,
