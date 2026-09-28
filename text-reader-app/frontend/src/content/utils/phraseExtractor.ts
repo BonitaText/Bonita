@@ -3,26 +3,51 @@
  *
  * Keyword extraction using compromise (NLP) + MeSH dictionary + science patterns.
  *
- * Scoring pipeline:
+ * Scoring pipeline (see {@link scoreTerm}):
  *
- *   score = pageFrequency × meshWeight × rarityBonus × patternBonus × nerBonus × acronymBonus
+ *   score = pageFrequency × difficulty × importance
  *
- *   pageFrequency  — how often the term appears in the article (log-scaled)
- *   meshWeight     — branch importance from MeSH (C=1.5, D=1.4, G=1.3 …), 1.0 for non-MeSH
- *   rarityBonus    — inverse of English word commonness (rare = higher score)
- *   patternBonus   — multiplier for regex-detected science terms
- *   nerBonus       — compromise recognised it as a named entity
- *   acronymBonus   — short but meaningful ALL-CAPS token
+ *   pageFrequency — how often the term appears in the article (log-scaled)
+ *   difficulty    — reading difficulty of the term, from {@link difficultyOfTerm},
+ *                   which shares `scoreComplexity` with `wordSimplifier.ts`
+ *                   (rarity × syllables × morphology × consonant clusters).
+ *                   Applies to every term, specialist or not, so a MeSH term
+ *                   gets credit for being hard to read, not just for being
+ *                   domain-flagged.
+ *   importance    — how strongly this term is domain-flagged: MeSH branch
+ *                   weight, science pattern, NER. Combined additively
+ *                   in log-space (`1 + Σ log2(flag)`) rather than multiplied
+ *                   directly, so a term hit by several flags at once (e.g.
+ *                   a MeSH phrase that's also NER-recognised) grows
+ *                   gently instead of compounding into an outsized score.
  *
  * Word length is intentionally NOT a scoring factor — it was pushing long
  * but unimportant words above short but meaningful ones (p53, WHO, etc.)
+ *
+ * Acronym status is still computed as a feature (`acronymBonus`, via
+ * {@link getTermFeatures}) so `eval/fitKeywordWeights.ts` can keep fitting
+ * over it, but it is deliberately excluded from {@link scoreTerm}'s
+ * `importance` term: the fitted regression put its coefficient at ~0 (and
+ * slightly negative — see `eval/fitKeywordWeights.ts` run history), meaning
+ * "is an ALL-CAPS acronym" wasn't actually predictive of importance once
+ * MeSH/pattern/NER were already accounted for, and including it as a flat
+ * ×2 multiplier was over-promoting incidental acronyms.
+ *
+ * Candidate generation ({@link extractCandidates}, passes 1–5) and scoring
+ * ({@link scoreTerm}) are split apart so `eval/fitKeywordWeights.ts` can
+ * generate the exact same candidates production would, without duplicating
+ * the NLP/dictionary passes — the same drift risk `difficultyOfTerm` was
+ * written to avoid for rarity curves. {@link extractKeywords} is just
+ * {@link extractCandidates} followed by a scoring-and-sort step.
  *
  * Stop words live in stopWords.en.json so they can be swapped per language.
  */
 
 import nlp from 'compromise'
+import { getCachedKeywordExtraction, setCachedKeywordExtraction } from './analysisCache'
 import { extractSciencePatternTerms, extractItalicScienceTerms } from './sciencePatterns'
 import { scoreComplexity } from './wordSimplifier'
+import { collectBlockElements, isCaptionOrCredit } from './contentRoot'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +76,6 @@ interface StopWordList {
    */
   sentenceStarters: string[]
 }
-
 
 // ---------------------------------------------------------------------------
 // Asset loading — all cached after first call
@@ -122,7 +146,7 @@ function isBlocked(word: string, stops: Set<string>): boolean {
 export function isAllStopTokens(phrase: string, stops: Set<string>): boolean {
   const tokens = phrase.trim().split(/\s+/)
   return tokens.length > 0 && tokens.every(t => {
-    if (isDottedAbbreviation(t)) return false  // "u.s." must not collapse to "us"
+    if (isDottedAbbreviation(t)) return false // "u.s." must not collapse to "us"
     return stops.has(t.toLowerCase().replace(/[^a-z'-]/g, ''))
   })
 }
@@ -149,7 +173,7 @@ export function isAllStopTokens(phrase: string, stops: Set<string>): boolean {
 export function hasContentToken(phrase: string, stops: Set<string>): boolean {
   const tokens = phrase.trim().split(/\s+/)
   return tokens.some(t => {
-    if (isDottedAbbreviation(t)) return true  // "u.s." is a content token
+    if (isDottedAbbreviation(t)) return true // "u.s." is a content token
     const clean = t.toLowerCase().replace(/[^a-z'-]/g, '')
     return clean.length >= 2 && !stops.has(clean)
   })
@@ -219,51 +243,37 @@ export function isFalseCapital(word: string, context: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Ancestor tags that indicate non-body content
+// Body paragraph collection
 // ---------------------------------------------------------------------------
-
-const NOISE_ANCESTORS = new Set([
-  'figure','figcaption','aside','nav','header','footer',
-  'blockquote','table','form','menu',
-])
-
-/** Returns `true` when `el` is a `<p>` not nested inside any noise container. */
-function isBodyText(el: Element): boolean {
-  if (el.tagName.toLowerCase() !== 'p') return false
-  let cursor: Element | null = el.parentElement
-  while (cursor) {
-    if (NOISE_ANCESTORS.has(cursor.tagName.toLowerCase())) return false
-    cursor = cursor.parentElement
-  }
-  return true
-}
 
 /**
  * Scrapes the body paragraphs of the current page.
  *
- * Strategy:
- * 1. Looks for a semantic content root (`<main>`, `<article>`, `[role="main"]`,
- *    `#content`, `.content`) and falls back to `<body>`.
- * 2. Collects every `<p>` inside that root that is **not** nested inside a
- *    noise ancestor (`<figure>`, `<aside>`, `<nav>`, etc.).
- * 3. Keeps only paragraphs with at least 30 whitespace-delimited tokens —
- *    short captions and pull quotes are discarded.
+ * Sourced from {@link collectBlockElements} (`contentRoot.ts`'s shared
+ * `<p>`-or-broader block discovery) rather than a local `querySelectorAll('p')`
+ * scrape. The previous `<p>`-only version was a duplicate, independent
+ * traversal of the page from every other feature's — on pages where body
+ * copy isn't wrapped in `<p>` tags at all, it silently returned nothing,
+ * which meant keyword extraction had zero candidate paragraphs to work
+ * from even after `contentRoot.ts` itself was fixed to look beyond `<p>`.
+ * Going through {@link collectBlockElements} keeps this in sync with every
+ * other feature's notion of "what's a paragraph" — see that file's header
+ * for the general pattern this was an instance of.
  *
- * @returns Array of trimmed paragraph text strings.
+ * Excludes image captions/credit lines via {@link isCaptionOrCredit} — a
+ * wire-photo credit line is real text but not representative body prose,
+ * and scoring it as a candidate paragraph skews keyword extraction toward
+ * whatever proper nouns happen to be in a photo credit.
+ *
+ * @returns Array of trimmed paragraph text strings, each at least 30 words
+ *   (via {@link collectBlockElements}'s `minWords`) — short captions and
+ *   pull quotes are discarded.
  */
 export function getBodyParagraphs(): string[] {
-  const selectors = ['main','article','[role="main"]','#content','.content']
-  let root: Element | null = null
-  for (const sel of selectors) {
-    root = document.querySelector(sel)
-    if (root) break
-  }
-  root = root ?? document.body
-
-  return Array.from(root.querySelectorAll('p'))
-    .filter(el => isBodyText(el))
+  return collectBlockElements({ minWords: 30 })
+    .filter(el => !isCaptionOrCredit(el))
     .map(el => (el.textContent ?? '').trim())
-    .filter(text => text.split(/\s+/).length >= 30)
+    .filter(Boolean)
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +291,6 @@ export function getBodyParagraphs(): string[] {
  * @param paragraphs - Array of body paragraph strings.
  * @param stops      - The loaded stop-word set.
  * @returns Lowercase acronym strings sorted by descending frequency.
- *
  */
 export function extractAcronyms(paragraphs: string[], stops: Set<string>): string[] {
   const counts = new Map<string, number>()
@@ -318,53 +327,133 @@ export function extractAcronyms(paragraphs: string[], stops: Set<string>): strin
 }
 
 // ---------------------------------------------------------------------------
-// Rarity bonus — based on English frequency rank
-//   top-1000  → 1.0  (no bonus)
-//   1k–5k     → 1.2
-//   5k–20k    → 1.5
-//   20k+      → 1.8
-//   unknown   → 2.0  (likely technical)
+// Difficulty — shared with wordSimplifier.ts
 // ---------------------------------------------------------------------------
 
 /**
- * Returns a rarity multiplier for `word` based on its English frequency rank.
+ * Returns the reading-difficulty score for a (possibly multi-word) term,
+ * via {@link scoreComplexity} from `wordSimplifier.ts`. This is what lets
+ * keyword scoring and complexity scoring share one rarity/morphology/rarity
+ * curve instead of the two drifting apart.
  *
- * | Rank range | Multiplier | Rationale                          |
- * |------------|------------|------------------------------------|
- * | ≤ 1 000    | 1.0        | Very common — no bonus             |
- * | 1 001–5 000 | 1.2       | Moderately common                  |
- * | 5 001–20 000 | 1.5      | Uncommon — likely domain-specific  |
- * | > 20 000   | 1.8        | Rare                               |
- * | Not found  | 2.0        | Unknown / highly technical         |
+ * For multi-word terms (e.g. a MeSH phrase like `"national institutes of
+ * health"`), the term's difficulty is the difficulty of its **hardest**
+ * word, not the average — a phrase reads as hard as its hardest word.
  *
- * @param word - Lowercase term to look up.
- * @param freq - The English frequency rank map (word → rank number).
+ * `scoreComplexity` now returns a fitted regression score centered near its
+ * intercept (~0.16) rather than a ≥1.0 product, so its raw output is
+ * rescaled here as `1 + max(0, score)` — a multiplicative "no worse than
+ * baseline, boosted by difficulty" factor — rather than passed straight
+ * through. A straight pass-through was tried first and made keyword ranking
+ * worse (see the eval run comparing "floor removed" vs "rescaled" in
+ * fitKeywordWeights.ts's history); this rescale is a hand-picked guess that
+ * empirically beat the old hand-tuned baseline on both Inspec and DUC-2001,
+ * not itself a fitted value.
+ *
+ * @param term - Lowercase candidate term, single- or multi-word.
+ * @param freq - English frequency rank map from `englishFreq.json`.
+ * @returns Difficulty multiplier ≥ 1.0.
  */
-function rarityBonus(word: string, freq: Map<string, number>): number {
-  const rank = freq.get(word.toLowerCase())
-  if (rank === undefined) return 2.0
-  if (rank <= 1000)  return 1.0
-  if (rank <= 5000)  return 1.2
-  if (rank <= 20000) return 1.5
-  return 1.8
+function difficultyOfTerm(term: string, freq: Map<string, number>): number {
+  const words = term.split(/\s+/)
+  const maxScore = Math.max(...words.map(w => scoreComplexity(w, freq)))
+  return 1 + Math.max(0, maxScore)
 }
 
 // ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
 
+/** Raw per-term feature values that {@link scoreTerm} combines into a final score. */
+export interface TermFeatures {
+  freqScore: number
+  difficulty: number
+  meshWeight: number
+  patternBonus: number
+  nerBonus: number
+  /**
+   * Kept for `eval/fitKeywordWeights.ts`'s design matrix, but no longer used
+   * by {@link scoreTerm} — the fitted coefficient came out ~0 (slightly
+   * negative), i.e. not predictive of importance once MeSH/pattern/NER are
+   * accounted for. See the header comment on this file.
+   */
+  acronymBonus: number
+}
+
 /**
- * Computes the composite keyword score for a single `term`.
+ * Computes the raw feature values for `term` without combining them into a
+ * final score. Split out of {@link scoreTerm} so `eval/fitKeywordWeights.ts`
+ * can build a design matrix from the same feature computation `scoreTerm`
+ * uses, instead of recomputing it separately and risking drift.
+ *
+ * @param term         - Lowercase candidate term.
+ * @param pageFreq     - Raw occurrence count on this page.
+ * @param mesh         - MeSH term → weight map.
+ * @param freq         - English frequency rank map.
+ * @param scienceTerms - Set of regex-detected science pattern terms.
+ * @param nerTerms     - Set of compromise-extracted named entities.
+ * @param acronyms     - Set of validated ALL-CAPS acronyms.
+ */
+export function getTermFeatures(
+  term: string,
+  pageFreq: number,
+  mesh: Map<string, number>,
+  freq: Map<string, number>,
+  scienceTerms: Set<string>,
+  nerTerms: Set<string>,
+  acronyms: Set<string>,
+): TermFeatures {
+  const key = term.toLowerCase()
+  return {
+    freqScore: Math.log2(pageFreq + 1),
+    difficulty: difficultyOfTerm(key, freq),
+    meshWeight: mesh.get(key) ?? 1.0,
+    patternBonus: scienceTerms.has(key) ? 2 : 1.0,
+    nerBonus: nerTerms.has(key) ? 2 : 1.0,
+    acronymBonus: acronyms.has(key) ? 2 : 1.0,
+  }
+}
+
+/**
+ * Computes the composite keyword score for a single `term`, from its
+ * {@link TermFeatures} via {@link getTermFeatures}.
  *
  * Formula:
  * ```
- * score = log2(pageFreq + 1)
- *       × meshWeight
- *       × rarityBonus
- *       × patternBonus   (1.5 if science pattern, else 1.0)
- *       × nerBonus       (1.2 if NER entity, else 1.0)
- *       × acronymBonus   (1.3 if ALL-CAPS acronym, else 1.0)
+ * score = freqScore × difficulty × importance
+ * importance = 1 + Σ log2(flag)   over [meshWeight, patternBonus, nerBonus]
  * ```
+ *
+ * - `difficulty` applies to **every** term, specialist or not. Previously,
+ *   terms flagged as MeSH/NER/pattern/acronym skipped this signal entirely
+ *   and fell back to a flat rarity-only bonus — which meant a MeSH term got
+ *   credit for being domain-important but no credit for actually being hard
+ *   to read.
+ * - `importance` combines the MeSH/pattern/NER flags additively in
+ *   log-space rather than multiplying them directly, so a term hit by
+ *   several flags at once grows gently instead of compounding into an
+ *   outsized score.
+ * - `acronymBonus` is deliberately **excluded** from `importance`.
+ *   `eval/fitKeywordWeights.ts` fit a linear model over all six
+ *   {@link TermFeatures} (see that script's output) and its coefficient on
+ *   `log_acronymBonus` came out ~0 and slightly negative — being an
+ *   ALL-CAPS acronym wasn't actually predictive of importance once
+ *   MeSH/pattern/NER were already in the mix, and the old flat ×2 bonus was
+ *   over-promoting incidental acronyms. The feature is still computed (see
+ *   {@link getTermFeatures}) so the eval script can keep tracking it, but it
+ *   no longer feeds the production score.
+ *
+ * The other near-zero fitted coefficients (`log_difficulty`,
+ * `log_meshWeight`) are expected, not a signal to remove those terms — they
+ * only fire for specialist/domain terms, so across a general corpus their
+ * average marginal contribution is small even though they matter a lot on
+ * the documents where they do apply.
+ *
+ * These are still hand-picked weights — an implicit coefficient of 1 on
+ * every remaining term in the product, additive log-combination for
+ * importance — not the fitted linear regression itself. See
+ * `eval/fitKeywordWeights.ts`'s header for how the two are compared before
+ * anything here gets hand-edited further.
  *
  * Word length is **deliberately excluded** — it over-promoted long but generic
  * words above short meaningful ones (e.g. `p53`, `WHO`).
@@ -387,44 +476,40 @@ export function scoreTerm(
   nerTerms: Set<string>,
   acronyms: Set<string>,
 ): number {
-  const key = term.toLowerCase()
-
-  // Log-scaled page frequency — diminishing returns on repetition
-  const freqScore = Math.log2(pageFreq + 1)
-
-  // MeSH branch weight (1.0 if not in MeSH)
-  const meshWeight = mesh.get(key) ?? 1.0
-
-  // Science pattern bonus
-  const patternBonus = scienceTerms.has(key) ? 2 : 1.0
-
-  // NER bonus
-  const nerBonus = nerTerms.has(key) ? 2 : 1.0
-
-  // Acronym bonus
-  const acronymBonus = acronyms.has(key) ? 2 : 1.0
-
-  // Specialist terms don't need complexity scoring
-  const isSpecialist =
-    meshWeight > 1.0 ||
-    patternBonus > 1.0 ||
-    nerBonus > 1.0 ||
-    acronymBonus > 1.0
-
-  const complexityScore = isSpecialist
-    ? rarityBonus(key, freq)          
-    : Math.max(scoreComplexity(key, freq), 1.0) // floor at 1.0 so freq still ranks them
-
-  return freqScore * meshWeight * complexityScore * patternBonus * nerBonus * acronymBonus
+  const f = getTermFeatures(term, pageFreq, mesh, freq, scienceTerms, nerTerms, acronyms)
+  const importance = 1 + [f.meshWeight, f.patternBonus, f.nerBonus]
+    .reduce((acc, factor) => acc + Math.log2(factor), 0)
+  return f.freqScore * f.difficulty * importance
 }
 
 // ---------------------------------------------------------------------------
-// extractKeywords — main export
+// Candidate generation — passes 1–5, shared by extractKeywords and the
+// fitting script
 // ---------------------------------------------------------------------------
 
+/** A single unscored keyword candidate: its term and raw page frequency. */
+export interface Candidate {
+  term: string
+  pageFreq: number
+}
+
 /**
- * Extracts and ranks the most important keywords from a set of body paragraphs
- * using a multi-pass NLP + dictionary pipeline.
+ * The dictionaries and flag sets {@link getTermFeatures} needs to score any
+ * candidate, plus the candidates themselves — everything {@link extractKeywords}
+ * produces before it gets to scoring.
+ */
+export interface CandidateContext {
+  candidates: Candidate[]
+  mesh: Map<string, number>
+  freq: Map<string, number>
+  scienceTerms: Set<string>
+  nerTerms: Set<string>
+  acronyms: Set<string>
+}
+
+/**
+ * Runs passes 1–5 and returns the filtered, unscored candidates plus every
+ * dictionary/flag set {@link getTermFeatures} needs to score them.
  *
  * **Passes (in order):**
  * 1. **NER** — compromise extracts people, places, and organisations.
@@ -434,17 +519,14 @@ export function scoreTerm(
  * 5. **Content word frequency** — nouns and adjectives via compromise, with
  *    stop-word and false-capital filtering.
  *
- * The returned list length is the minimum of `maxTerms`, a length derived
- * from paragraph count (`10 + paragraphs.length × 2`, capped at 200), and
- * the hard global cap of 200.
+ * {@link extractKeywords} is this function followed by a scoring-and-sort
+ * step; kept separate so `eval/fitKeywordWeights.ts` can generate the exact
+ * same candidates production would, without re-implementing passes 1–5 —
+ * the same drift risk {@link difficultyOfTerm} avoids for rarity curves.
  *
  * @param paragraphs - Body paragraph strings (from {@link getBodyParagraphs}).
- * @returns Lowercase keyword strings sorted by descending score.
  */
-export async function extractKeywords(
-  paragraphs: string[],
-): Promise<Array<{term: string, score: number}>> {
-
+export async function extractCandidates(paragraphs: string[]): Promise<CandidateContext> {
   // Load all assets in parallel (cached after first call)
   const [mesh, freq, { stopSet: stops, sentenceStarterSet: sentenceStarters }] = await Promise.all([
     getMeshMap(),
@@ -526,24 +608,52 @@ export async function extractKeywords(
       const matches = fullText.match(new RegExp(`\\b${escaped}\\b`, 'gi'))
       pageFreqMap.set(term, matches?.length ?? 1)
     }
-  
   }
 
-  // ── Scoring & ranking ────────────────────────────────────────────────────
-  const scored = [...pageFreqMap.entries()]
+  const candidates = [...pageFreqMap.entries()]
     .filter(([term]) => {
       if (isBlocked(term, stops)) return false
       if (isAllStopTokens(term, stops)) return false
       if (!hasContentToken(term, stops)) return false
       return true
     })
-    .map(([term, pageFreq]) => ({
+    .map(([term, pageFreq]) => ({ term, pageFreq }))
+
+  return { candidates, mesh, freq, scienceTerms, nerTerms, acronyms }
+}
+
+// ---------------------------------------------------------------------------
+// extractKeywords — main export
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts and ranks the most important keywords from a set of body paragraphs.
+ *
+ * Thin wrapper: runs {@link extractCandidates} (passes 1–5) then scores and
+ * sorts every candidate with {@link scoreTerm}. See {@link extractCandidates}
+ * for the candidate-generation strategy and {@link scoreTerm} for the
+ * scoring formula.
+ *
+ * @param paragraphs - Body paragraph strings (from {@link getBodyParagraphs}).
+ * @returns Lowercase keyword strings sorted by descending score.
+ */
+export async function extractKeywords(
+  paragraphs: string[],
+): Promise<Array<{ term: string, score: number }>> {
+  const cached = getCachedKeywordExtraction(paragraphs)
+  if (cached) return cached
+
+  const { candidates, mesh, freq, scienceTerms, nerTerms, acronyms } = await extractCandidates(paragraphs)
+
+  const result = candidates
+    .map(({ term, pageFreq }) => ({
       term,
       score: scoreTerm(term, pageFreq, mesh, freq, scienceTerms, nerTerms, acronyms),
     }))
     .sort((a, b) => b.score - a.score)
 
-  return scored.slice(0)
+  setCachedKeywordExtraction(paragraphs, result)
+  return result
 }
 
 // ---------------------------------------------------------------------------

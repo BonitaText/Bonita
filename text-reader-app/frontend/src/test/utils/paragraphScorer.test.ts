@@ -1,179 +1,210 @@
 /**
  * Tests for paragraphScorer.ts
  *
- * countSyllables   — vowel-group counting, punctuation stripping, edge cases
- * splitSentences   — basic splitting, abbreviation handling, lowercase merging
- * scoreParagraph   — Flesch score + penalties → action thresholds + debug metrics
- * scoreParagraphs  — maps scoreParagraph over an array
+ * complexityOf (indirect) — cache hit/miss via analysisCache
+ * scoreParagraph  — word-complexity density scoring, empty-text edge case
+ * selectSplitTargets — page-relative ranking + threshold selection
+ * scoreParagraphs — end-to-end orchestration
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  countSyllables,
-  splitSentences,
   scoreParagraph,
+  selectSplitTargets,
   scoreParagraphs,
+  type ScoredParagraph,
 } from '../../content/utils/paragraphScorer'
+import * as wordSimplifier from '../../content/utils/wordSimplifier'
+import * as phraseExtractor from '../../content/utils/phraseExtractor'
+import * as analysisCache from '../../content/utils/analysisCache'
 
-// ─── countSyllables ───────────────────────────────────────────────────────────
-
-describe('countSyllables', () => {
-  it('returns 1 for a single vowel word', () => {
-    expect(countSyllables('a')).toBe(1)
-  })
-
-  it('counts one vowel group as one syllable', () => {
-    expect(countSyllables('cat')).toBe(1)   // c-a-t
-  })
-
-  it('counts two vowel groups as two syllables', () => {
-    expect(countSyllables('hello')).toBe(2) // hel-lo → e, o
-  })
-
-  it('counts y as a vowel', () => {
-    expect(countSyllables('rhythm')).toBe(1) // y is the only vowel
-  })
-
-  it('treats consecutive vowels as one syllable group', () => {
-    // b-eau-t-i-f-u-l → groups: eau(1), i(2), u(3)
-    expect(countSyllables('beautiful')).toBe(3)
-  })
-
-  it('strips punctuation before counting', () => {
-    expect(countSyllables('hello,')).toBe(countSyllables('hello'))
-    expect(countSyllables('word.')).toBe(countSyllables('word'))
-  })
-
-  it('returns at least 1 even for strings with no vowels', () => {
-    expect(countSyllables('rhythm')).toBeGreaterThanOrEqual(1)
-  })
-
-  it('returns 1 for an empty string after cleaning', () => {
-    expect(countSyllables('')).toBe(1)
-  })
+vi.mock('../../content/utils/wordSimplifier', async () => {
+  const actual = await vi.importActual<typeof wordSimplifier>('../../content/utils/wordSimplifier')
+  return {
+    ...actual,
+    scoreComplexity: vi.fn(),
+  }
 })
+vi.mock('../../content/utils/phraseExtractor')
+vi.mock('../../content/utils/analysisCache')
 
-// ─── splitSentences ───────────────────────────────────────────────────────────
+const scoreComplexity   = wordSimplifier.scoreComplexity as ReturnType<typeof vi.fn>
+const getFreqMap        = phraseExtractor.getFreqMap as ReturnType<typeof vi.fn>
+const getCachedComplexity = analysisCache.getCachedComplexity as ReturnType<typeof vi.fn>
+const setCachedComplexity = analysisCache.setCachedComplexity as ReturnType<typeof vi.fn>
 
-describe('splitSentences', () => {
-  it('splits basic sentences', () => {
-    const result = splitSentences('The cat sat. The dog ran.')
-    expect(result).toHaveLength(2)
-    expect(result[0]).toBe('The cat sat.')
-    expect(result[1]).toBe('The dog ran.')
-  })
+const MEDIUM = wordSimplifier.COMPLEXITY_THRESHOLDS.medium // 0.3
+const MOCK_FREQ = new Map<string, number>()
 
-  it('returns the original text as one sentence when no split is possible', () => {
-    const text = 'Just one sentence here'
-    const result = splitSentences(text)
-    expect(result).toHaveLength(1)
-    expect(result[0]).toBe(text)
-  })
+/** Assigns a fixed complexity score per lowercase word for a test. */
+function mockScores(scores: Record<string, number>) {
+  scoreComplexity.mockImplementation((word: string) => scores[word.toLowerCase()] ?? 0)
+}
 
-  it('merges lowercase continuation back onto previous sentence (abbreviations)', () => {
-    // "Dr." causes a split — "smith went" starts lowercase so should be merged
-    const result = splitSentences('She visited Dr. smith yesterday.')
-    expect(result).toHaveLength(1)
-  })
-
-  it('does not merge a fragment that starts with an uppercase letter', () => {
-    const result = splitSentences('She left. He stayed.')
-    expect(result).toHaveLength(2)
-  })
-
-  it('filters out empty fragments', () => {
-    const result = splitSentences('   ')
-    expect(result).toEqual([])
-  })
+beforeEach(() => {
+  vi.clearAllMocks()
+  getFreqMap.mockResolvedValue(MOCK_FREQ)
+  getCachedComplexity.mockReturnValue(null) // default: always a cache miss
 })
 
 // ─── scoreParagraph ───────────────────────────────────────────────────────────
 
 describe('scoreParagraph', () => {
-  it('returns action "none" for empty text', () => {
-    expect(scoreParagraph('').action).toBe('none')
+  it('returns action "none" and no _debug for empty text', async () => {
+    const result = await scoreParagraph('')
+    expect(result.action).toBe('none')
+    expect(result._debug).toBeUndefined()
   })
 
-  it('returns action "none" for simple readable text', () => {
-    // Short common words, short sentences → high Flesch score
-    const simple = 'The cat sat on the mat. The dog ran to the park. She saw a big red ball.'
-    expect(scoreParagraph(simple).action).toBe('none')
+  it('returns action "none" and no _debug for whitespace-only text', async () => {
+    const result = await scoreParagraph('   ')
+    expect(result.action).toBe('none')
+    expect(result._debug).toBeUndefined()
   })
 
-  it('returns action "split" for moderately complex text', () => {
-    // Longer sentences with moderately complex words push score into 40-60 range
-    const moderate =
-      'The investigation revealed substantial inconsistencies in the documented evidence. ' +
-      'Researchers determined that additional verification procedures were necessary to establish credibility. ' +
-      'The committee subsequently requested comprehensive supplementary documentation from all participating institutions.'
-    const result = scoreParagraph(moderate)
-    expect(['split', 'llm']).toContain(result.action)
+  it('computes density as the fraction of words at/above the medium threshold', async () => {
+    // 4 words, 1 at/above medium → density 0.25
+    mockScores({ the: 0.1, cat: 0.1, sat: 0.1, quixotically: MEDIUM })
+    const result = await scoreParagraph('the cat sat quixotically', MOCK_FREQ)
+    expect(result._debug?.wordCount).toBe(4)
+    expect(result._debug?.complexWordCount).toBe(1)
+    expect(result._debug?.density).toBeCloseTo(0.25, 3)
   })
 
-  it('returns action "llm" for very dense academic text', () => {
-    const dense =
-      'Epistemological investigations predicated upon phenomenological methodologies necessitate ' +
-      'the systematic deconstruction of heterogeneous ontological presuppositions underlying ' +
-      'epistemically constrained representational frameworks, thereby precipitating comprehensive ' +
-      'reconceptualisation of consciousness as fundamentally intersubjective rather than solipsistically constituted.'
-    expect(scoreParagraph(dense).action).toBe('llm')
+  it('computes avgComplexity as the mean of all word scores', async () => {
+    mockScores({ a: 0.2, b: 0.4 })
+    const result = await scoreParagraph('a b', MOCK_FREQ)
+    expect(result._debug?.avgComplexity).toBeCloseTo(0.3, 3)
   })
 
-  it('preserves the original text in the result', () => {
-    const text = 'The cat sat on the mat. The dog ran fast to the park.'
-    expect(scoreParagraph(text).text).toBe(text)
+  it('always returns action "none" — real action is assigned later by selectSplitTargets', async () => {
+    mockScores({ hard: 0.99 })
+    const result = await scoreParagraph('hard hard hard', MOCK_FREQ)
+    expect(result.action).toBe('none')
   })
 
-  it('trims whitespace from the text field', () => {
-    const text = 'The cat sat on the mat.'
-    expect(scoreParagraph(`  ${text}  `).text).toBe(text)
+  it('preserves the original text, trimmed', async () => {
+    mockScores({ hello: 0.1 })
+    const result = await scoreParagraph('  hello world  ', MOCK_FREQ)
+    expect(result.text).toBe('hello world')
   })
 
-  it('includes _debug metrics', () => {
-    const result = scoreParagraph('The cat sat on the mat. The dog ran to the park.')
-    expect(result._debug).toBeDefined()
-    expect(result._debug?.flesch).toBeTypeOf('number')
-    expect(result._debug?.score).toBeTypeOf('number')
-    expect(result._debug?.avgWordLen).toBeTypeOf('number')
-    expect(result._debug?.avgSentLen).toBeTypeOf('number')
-    expect(result._debug?.syllableDensity).toBeTypeOf('number')
-    expect(result._debug?.sentenceCount).toBeTypeOf('number')
+  it('uses the passed freq map without calling getFreqMap', async () => {
+    mockScores({ word: 0.1 })
+    await scoreParagraph('word', MOCK_FREQ)
+    expect(getFreqMap).not.toHaveBeenCalled()
   })
 
-  it('score is always between 0 and 100', () => {
-    const texts = [
-      'Hi.',
-      'The cat sat on the mat.',
-      'Epistemological phenomenological methodologies necessitate systematic deconstruction.',
-    ]
-    for (const text of texts) {
-      const { _debug } = scoreParagraph(text)
-      if (_debug) {
-        expect(_debug.score).toBeGreaterThanOrEqual(0)
-        expect(_debug.score).toBeLessThanOrEqual(100)
-      }
-    }
+  it('calls getFreqMap when no freq map is passed', async () => {
+    mockScores({ word: 0.1 })
+    await scoreParagraph('word')
+    expect(getFreqMap).toHaveBeenCalled()
+  })
+
+  it('uses the cached complexity score and skips scoreComplexity on a cache hit', async () => {
+    getCachedComplexity.mockReturnValue(0.77)
+    const result = await scoreParagraph('anything', MOCK_FREQ)
+    expect(scoreComplexity).not.toHaveBeenCalled()
+    expect(result._debug?.avgComplexity).toBeCloseTo(0.77, 3)
+  })
+
+  it('scores and caches on a cache miss', async () => {
+    getCachedComplexity.mockReturnValue(null)
+    mockScores({ novel: 0.55 })
+    await scoreParagraph('novel', MOCK_FREQ)
+    expect(scoreComplexity).toHaveBeenCalledWith('novel', MOCK_FREQ)
+    expect(setCachedComplexity).toHaveBeenCalledWith('novel', 0.55)
   })
 })
 
-// ─── scoreParagraphs ──────────────────────────────────────────────────────────
+// ─── selectSplitTargets ───────────────────────────────────────────────────────
+
+function fake(density: number, wordCount = 10): ScoredParagraph {
+  return {
+    text: `para-${density}`,
+    action: 'none',
+    _debug: { density, avgComplexity: density, wordCount, complexWordCount: Math.round(density * wordCount) },
+  }
+}
+
+describe('selectSplitTargets', () => {
+  it('returns an empty array for empty input', () => {
+    expect(selectSplitTargets([], 50)).toEqual([])
+  })
+
+  it('marks nothing "split" when thresholdPercent is 0', () => {
+    const scores = [fake(0.9), fake(0.1)]
+    const result = selectSplitTargets(scores, 0)
+    expect(result.every(r => r.action === 'none')).toBe(true)
+  })
+
+  it('marks every eligible paragraph "split" when thresholdPercent is 100', () => {
+    const scores = [fake(0.9), fake(0.1), fake(0.5)]
+    const result = selectSplitTargets(scores, 100)
+    expect(result.every(r => r.action === 'split')).toBe(true)
+  })
+
+  it('splits only the densest paragraphs for a partial threshold', () => {
+    const scores = [fake(0.9), fake(0.1), fake(0.5), fake(0.7)]
+    // 50% of 4 = 2 → densest two (0.9, 0.7) should split
+    const result = selectSplitTargets(scores, 50)
+    expect(result[0].action).toBe('split') // 0.9
+    expect(result[3].action).toBe('split') // 0.7
+    expect(result[1].action).toBe('none')  // 0.1
+    expect(result[2].action).toBe('none')  // 0.5
+  })
+
+  it('excludes empty (wordCount 0) paragraphs from the eligible pool', () => {
+    const empty: ScoredParagraph = { text: '', action: 'none' }
+    const scores = [fake(0.9), empty]
+    const result = selectSplitTargets(scores, 100)
+    expect(result[0].action).toBe('split')
+    expect(result[1].action).toBe('none')
+  })
+
+  it('breaks ties by original array order', () => {
+    const scores = [fake(0.5), fake(0.5), fake(0.5), fake(0.5)]
+    // 50% of 4 = 2 → first two in original order win the tie
+    const result = selectSplitTargets(scores, 50)
+    expect(result[0].action).toBe('split')
+    expect(result[1].action).toBe('split')
+    expect(result[2].action).toBe('none')
+    expect(result[3].action).toBe('none')
+  })
+})
+
+// ─── scoreParagraphs ────────────────────────────────────────────────────────
 
 describe('scoreParagraphs', () => {
-  it('returns an empty array for empty input', () => {
-    expect(scoreParagraphs([])).toEqual([])
+  it('returns an empty array for empty input', async () => {
+    await expect(scoreParagraphs([])).resolves.toEqual([])
   })
 
-  it('returns one result per paragraph', () => {
-    const paragraphs = [
-      'The cat sat on the mat. The dog ran to the park.',
-      'She saw a big red ball near the old oak tree.',
-    ]
-    expect(scoreParagraphs(paragraphs)).toHaveLength(2)
+  it('returns one result per paragraph, each with text and action', async () => {
+    mockScores({ hello: 0.1, world: 0.1 })
+    const result = await scoreParagraphs(['hello world', 'hello world'])
+    expect(result).toHaveLength(2)
+    for (const r of result) {
+      expect(r).toHaveProperty('text')
+      expect(r).toHaveProperty('action')
+    }
   })
 
-  it('each result has a text and action field', () => {
-    const results = scoreParagraphs(['The cat sat on the mat. The dog ran fast.'])
-    expect(results[0]).toHaveProperty('text')
-    expect(results[0]).toHaveProperty('action')
+  it('resolves the freq map once and reuses it for every paragraph', async () => {
+    mockScores({ hello: 0.1 })
+    await scoreParagraphs(['hello', 'hello', 'hello'])
+    expect(getFreqMap).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies the threshold across all paragraphs together, not per-paragraph', async () => {
+    mockScores({ easy: 0.1, hard: 0.9 })
+    // 30% of 3 eligible = 0.9 → ceil → 1 split, and it must be the densest paragraph
+    const result = await scoreParagraphs(['hard hard', 'easy easy', 'easy easy'], 30)
+    expect(result.map(r => r.action)).toEqual(['split', 'none', 'none'])
+  })
+
+  it('rounds the split count up (ceil), so any nonzero threshold splits at least one', () => {
+    const result = selectSplitTargets([fake(0.9), fake(0.1), fake(0.5)], 1)
+    expect(result.filter(r => r.action === 'split')).toHaveLength(1)
   })
 })

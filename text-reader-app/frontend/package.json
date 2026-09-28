@@ -12,7 +12,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "worker:dev": "wrangler dev --config workers/report-relay/wrangler.toml",
-    "worker:deploy": "wrangler deploy --config workers/report-relay/wrangler.toml"
+    "worker:deploy": "wrangler deploy --config workers/report-relay/wrangler.toml",
+    "eval:complexity": "tsx eval/runComplexityEval.ts"
   },
   "dependencies": {
     "@fontsource/opendyslexic": "^5.2.5",
@@ -30,7 +31,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/adm-zip": "^0.5.8",
     "@types/chrome": "^0.1.37",
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
@@ -38,6 +39,8 @@
     "@vitest/ui": "^4.1.9",
     "adm-zip": "^0.6.0",
     "jsdom": "^29.1.1",
+    "natural": "^8.1.1",
+    "tsx": "^4.23.12",
     "typedoc": "^0.28.19",
     "typescript": "~5.9.3",
     "vite": "^6.0.0",

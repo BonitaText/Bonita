@@ -71,7 +71,7 @@ vi.mock('../../content/views/WordSimplify', () => ({
   default: (props: ToolMockProps) => <ToolMock testId="word-simplify" {...props} />,
 }))
 vi.mock('../../content/views/SentenceSplitting', () => ({
-  default: () => <div data-testid="sentence-splitting" />,
+  default: (props: ToolMockProps) => <ToolMock testId="sentence-splitting" {...props} />,
 }))
 vi.mock('../../content/views/TTSReader', () => ({
   default: () => <div data-testid="tts-reader" />,
@@ -742,11 +742,19 @@ describe('App — popup coordination across tools', () => {
     expect(screen.getByTestId('font-selector')).toHaveAttribute('data-open', 'true')
   })
 
-  it('clicking sentence-splitting or tts (no popup) closes any currently open popup', () => {
+  it('switches to the sentence-splitting popup, closing the previous one', () => {
+    fireEvent.click(screen.getByTestId('pos-highlight'))
+    fireEvent.click(screen.getByTestId('sentence-splitting'))
+
+    expect(screen.getByTestId('pos-highlight')).toHaveAttribute('data-open', 'false')
+    expect(screen.getByTestId('sentence-splitting')).toHaveAttribute('data-open', 'true')
+  })
+
+  it('clicking tts (no popup) closes any currently open popup', () => {
     fireEvent.click(screen.getByTestId('pos-highlight'))
     expect(screen.getByTestId('pos-highlight')).toHaveAttribute('data-open', 'true')
 
-    fireEvent.click(screen.getByTestId('sentence-splitting'))
+    fireEvent.click(screen.getByTestId('tts-reader'))
     expect(screen.getByTestId('pos-highlight')).toHaveAttribute('data-open', 'false')
   })
 })
