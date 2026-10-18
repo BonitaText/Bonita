@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>getBodyParagraphs | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>getBodyParagraphs | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container"><a href="../index.html" class="title">frontend</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
@@ -17,20 +17,27 @@
 <div class="tsd-signature tsd-anchor-link" id="getbodyparagraphs"><span class="tsd-kind-call-signature">getBodyParagraphs</span><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><a href="#getbodyparagraphs" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
 <div class="tsd-comment tsd-typography"><p>Scrapes the body paragraphs of the current page.</p>
-<p>Strategy:</p>
-<ol>
-<li>Looks for a semantic content root (<code>&lt;main&gt;</code>, <code>&lt;article&gt;</code>, <code>[role=&quot;main&quot;]</code>,
-<code>#content</code>, <code>.content</code>) and falls back to <code>&lt;body&gt;</code>.</li>
-<li>Collects every <code>&lt;p&gt;</code> inside that root that is <strong>not</strong> nested inside a
-noise ancestor (<code>&lt;figure&gt;</code>, <code>&lt;aside&gt;</code>, <code>&lt;nav&gt;</code>, etc.).</li>
-<li>Keeps only paragraphs with at least 30 whitespace-delimited tokens —
-short captions and pull quotes are discarded.</li>
-</ol>
+<p>Sourced from <a href="content_utils_contentRoot.collectBlockElements.html" class="tsd-kind-function">collectBlockElements</a> (<code>contentRoot.ts</code>'s shared
+<code>&lt;p&gt;</code>-or-broader block discovery) rather than a local <code>querySelectorAll('p')</code>
+scrape. The previous <code>&lt;p&gt;</code>-only version was a duplicate, independent
+traversal of the page from every other feature's — on pages where body
+copy isn't wrapped in <code>&lt;p&gt;</code> tags at all, it silently returned nothing,
+which meant keyword extraction had zero candidate paragraphs to work
+from even after <code>contentRoot.ts</code> itself was fixed to look beyond <code>&lt;p&gt;</code>.
+Going through <a href="content_utils_contentRoot.collectBlockElements.html" class="tsd-kind-function">collectBlockElements</a> keeps this in sync with every
+other feature's notion of &quot;what's a paragraph&quot; — see that file's header
+for the general pattern this was an instance of.</p>
+<p>Excludes image captions/credit lines via <a href="content_utils_contentRoot.isCaptionOrCredit.html" class="tsd-kind-function">isCaptionOrCredit</a> — a
+wire-photo credit line is real text but not representative body prose,
+and scoring it as a candidate paragraph skews keyword extraction toward
+whatever proper nouns happen to be in a photo credit.</p>
 </div>
-<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></h4><p>Array of trimmed paragraph text strings.</p>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></h4><p>Array of trimmed paragraph text strings, each at least 30 words
+(via <a href="content_utils_contentRoot.collectBlockElements.html" class="tsd-kind-function">collectBlockElements</a>'s <code>minWords</code>) — short captions and
+pull quotes are discarded.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/2e58fbb301e758df09b9d41a54627d52dd30418a/text-reader-app/frontend/src/content/utils/phraseExtractor.ts#L254">content/utils/phraseExtractor.ts:254</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/8fff76b11714b8efabffdf0962d270d68b0d7192/text-reader-app/frontend/src/content/utils/phraseExtractor.ts#L272">content/utils/phraseExtractor.ts:272</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

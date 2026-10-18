@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>applyPhraseBolding | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>applyPhraseBolding | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container"><a href="../index.html" class="title">frontend</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
@@ -19,11 +19,17 @@
 <div class="tsd-comment tsd-typography"><p>Walks each body paragraph independently, ranks the provided scored terms
 by their score within that paragraph, applies the percentage threshold,
 and bolds the top terms found in that paragraph's text nodes.</p>
+<p>Paragraph discovery uses <a href="content_utils_contentRoot.collectBlockElements.html" class="tsd-kind-function">collectBlockElements</a> (the broad
+<a href="../variables/content_utils_contentRoot.BLOCK_TAGS.html" class="tsd-kind-variable">BLOCK_TAGS</a> set) rather than <code>querySelectorAll('p')</code>, so this now
+works correctly on <code>&lt;p&gt;</code>-free pages — the source of the Khan Academy
+failure, where zero <code>&lt;p&gt;</code> elements meant <code>present.length</code> was always <code>0</code>
+for every paragraph and no bolding was ever applied, silently.</p>
 <p>Per-paragraph ranking means a term that dominates one paragraph gets bolded
 there even if it's globally mid-ranked, and a globally high-ranked term
 that barely appears in a paragraph may not be bolded there.</p>
-<p>Stop word edges are trimmed from every expanded span so that function words
-are never bolded at the boundary of a phrase.</p>
+<p>Each term's presence-test regex is resolved once via getPresenceRegex
+before the paragraph loop starts, rather than rebuilt per paragraph — see
+this file's header for why that mattered on term-heavy pages.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -37,7 +43,7 @@ terms to bold. 50 = top half per paragraph.</p>
 </div></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/2e58fbb301e758df09b9d41a54627d52dd30418a/text-reader-app/frontend/src/content/utils/phraseBolder.ts#L544">content/utils/phraseBolder.ts:544</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/8fff76b11714b8efabffdf0962d270d68b0d7192/text-reader-app/frontend/src/content/utils/phraseBolder.ts#L613">content/utils/phraseBolder.ts:613</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

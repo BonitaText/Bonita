@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>scoreTerm | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>scoreTerm | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container"><a href="../index.html" class="title">frontend</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
@@ -16,11 +16,42 @@
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="scoreterm"><span class="tsd-kind-call-signature">scoreTerm</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">term</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">pageFreq</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">mesh</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">freq</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">scienceTerms</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Set</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">nerTerms</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Set</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">acronyms</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Set</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><a href="#scoreterm" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Computes the composite keyword score for a single <code>term</code>.</p>
+<div class="tsd-comment tsd-typography"><p>Computes the composite keyword score for a single <code>term</code>, from its
+<a href="../interfaces/content_utils_phraseExtractor.TermFeatures.html" class="tsd-kind-interface">TermFeatures</a> via <a href="content_utils_phraseExtractor.getTermFeatures.html" class="tsd-kind-function">getTermFeatures</a>.</p>
 <p>Formula:</p>
-<pre><code><span class="hl-12">score</span><span class="hl-2"> = </span><span class="hl-3">log2</span><span class="hl-2">(</span><span class="hl-12">pageFreq</span><span class="hl-2"> + </span><span class="hl-13">1</span><span class="hl-2">)</span><br/><span class="hl-2">      × </span><span class="hl-12">meshWeight</span><br/><span class="hl-2">      × </span><span class="hl-12">rarityBonus</span><br/><span class="hl-2">      × </span><span class="hl-3">patternBonus</span><span class="hl-2">   (</span><span class="hl-13">1.5</span><span class="hl-2"> </span><span class="hl-12">if</span><span class="hl-2"> </span><span class="hl-12">science</span><span class="hl-2"> </span><span class="hl-12">pattern</span><span class="hl-2">, </span><span class="hl-12">else</span><span class="hl-2"> </span><span class="hl-13">1.0</span><span class="hl-2">)</span><br/><span class="hl-2">      × </span><span class="hl-3">nerBonus</span><span class="hl-2">       (</span><span class="hl-13">1.2</span><span class="hl-2"> </span><span class="hl-12">if</span><span class="hl-2"> </span><span class="hl-7">NER</span><span class="hl-2"> </span><span class="hl-12">entity</span><span class="hl-2">, </span><span class="hl-12">else</span><span class="hl-2"> </span><span class="hl-13">1.0</span><span class="hl-2">)</span><br/><span class="hl-2">      × </span><span class="hl-3">acronymBonus</span><span class="hl-2">   (</span><span class="hl-13">1.3</span><span class="hl-2"> </span><span class="hl-12">if</span><span class="hl-2"> </span><span class="hl-7">ALL</span><span class="hl-2">-</span><span class="hl-7">CAPS</span><span class="hl-2"> </span><span class="hl-12">acronym</span><span class="hl-2">, </span><span class="hl-12">else</span><span class="hl-2"> </span><span class="hl-13">1.0</span><span class="hl-2">)</span>
+<pre><code><span class="hl-12">score</span><span class="hl-2"> = </span><span class="hl-12">freqScore</span><span class="hl-2"> × </span><span class="hl-12">difficulty</span><span class="hl-2"> × </span><span class="hl-12">importance</span><br/><span class="hl-12">importance</span><span class="hl-2"> = </span><span class="hl-14">1</span><span class="hl-2"> + </span><span class="hl-7">Σ</span><span class="hl-2"> </span><span class="hl-3">log2</span><span class="hl-2">(</span><span class="hl-12">flag</span><span class="hl-2">)   </span><span class="hl-12">over</span><span class="hl-2"> [</span><span class="hl-12">meshWeight</span><span class="hl-2">, </span><span class="hl-12">patternBonus</span><span class="hl-2">, </span><span class="hl-12">nerBonus</span><span class="hl-2">]</span>
 </code><button>Copy</button></pre>
 
+<ul>
+<li><code>difficulty</code> applies to <strong>every</strong> term, specialist or not. Previously,
+terms flagged as MeSH/NER/pattern/acronym skipped this signal entirely
+and fell back to a flat rarity-only bonus — which meant a MeSH term got
+credit for being domain-important but no credit for actually being hard
+to read.</li>
+<li><code>importance</code> combines the MeSH/pattern/NER flags additively in
+log-space rather than multiplying them directly, so a term hit by
+several flags at once grows gently instead of compounding into an
+outsized score.</li>
+<li><code>acronymBonus</code> is deliberately <strong>excluded</strong> from <code>importance</code>.
+<code>eval/fitKeywordWeights.ts</code> fit a linear model over all six
+<a href="../interfaces/content_utils_phraseExtractor.TermFeatures.html" class="tsd-kind-interface">TermFeatures</a> (see that script's output) and its coefficient on
+<code>log_acronymBonus</code> came out ~0 and slightly negative — being an
+ALL-CAPS acronym wasn't actually predictive of importance once
+MeSH/pattern/NER were already in the mix, and the old flat ×2 bonus was
+over-promoting incidental acronyms. The feature is still computed (see
+<a href="content_utils_phraseExtractor.getTermFeatures.html" class="tsd-kind-function">getTermFeatures</a>) so the eval script can keep tracking it, but it
+no longer feeds the production score.</li>
+</ul>
+<p>The other near-zero fitted coefficients (<code>log_difficulty</code>,
+<code>log_meshWeight</code>) are expected, not a signal to remove those terms — they
+only fire for specialist/domain terms, so across a general corpus their
+average marginal contribution is small even though they matter a lot on
+the documents where they do apply.</p>
+<p>These are still hand-picked weights — an implicit coefficient of 1 on
+every remaining term in the product, additive log-combination for
+importance — not the fitted linear regression itself. See
+<code>eval/fitKeywordWeights.ts</code>'s header for how the two are compared before
+anything here gets hand-edited further.</p>
 <p>Word length is <strong>deliberately excluded</strong> — it over-promoted long but generic
 words above short meaningful ones (e.g. <code>p53</code>, <code>WHO</code>).</p>
 </div>
@@ -51,7 +82,7 @@ words above short meaningful ones (e.g. <code>p53</code>, <code>WHO</code>).</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4><p>Composite score (higher = more important keyword).</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/2e58fbb301e758df09b9d41a54627d52dd30418a/text-reader-app/frontend/src/content/utils/phraseExtractor.ts#L381">content/utils/phraseExtractor.ts:381</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/8fff76b11714b8efabffdf0962d270d68b0d7192/text-reader-app/frontend/src/content/utils/phraseExtractor.ts#L470">content/utils/phraseExtractor.ts:470</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

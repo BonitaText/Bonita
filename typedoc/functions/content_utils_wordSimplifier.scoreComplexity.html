@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>scoreComplexity | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>scoreComplexity | frontend</title><meta name="description" content="Documentation for frontend"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container"><a href="../index.html" class="title">frontend</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
@@ -17,37 +17,40 @@
 <div class="tsd-signature tsd-anchor-link" id="scorecomplexity"><span class="tsd-kind-call-signature">scoreComplexity</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">word</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">freq</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><a href="#scorecomplexity" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
 <div class="tsd-comment tsd-typography"><p>Computes the composite reading-complexity score for a single word.</p>
-<pre><code><span class="hl-12">score</span><span class="hl-2"> = </span><span class="hl-12">rarityScore</span><span class="hl-2"> × </span><span class="hl-12">syllableScore</span><span class="hl-2"> × </span><span class="hl-12">morphScore</span><span class="hl-2"> × </span><span class="hl-12">prefixScore</span><span class="hl-2"> × </span><span class="hl-12">clusterScore</span>
+<pre><code><span class="hl-12">score</span><span class="hl-2"> = </span><span class="hl-12">w0</span><br/><span class="hl-2">      + </span><span class="hl-12">w1</span><span class="hl-2"> · </span><span class="hl-3">log</span><span class="hl-2">(</span><span class="hl-12">rarity</span><span class="hl-2">)</span><br/><span class="hl-2">      + </span><span class="hl-12">w2</span><span class="hl-2"> · </span><span class="hl-3">log</span><span class="hl-2">(</span><span class="hl-12">syllable</span><span class="hl-2">)</span><br/><span class="hl-2">      + </span><span class="hl-12">w3</span><span class="hl-2"> · </span><span class="hl-3">log</span><span class="hl-2">(</span><span class="hl-12">prefix</span><span class="hl-2">)</span><br/><span class="hl-2">      + </span><span class="hl-12">w4</span><span class="hl-2"> · </span><span class="hl-3">log</span><span class="hl-2">(</span><span class="hl-12">suffix</span><span class="hl-2">)</span><br/><span class="hl-2">      + </span><span class="hl-12">w5</span><span class="hl-2"> · </span><span class="hl-3">log</span><span class="hl-2">(</span><span class="hl-12">cluster</span><span class="hl-2">)</span><br/><span class="hl-2">      + </span><span class="hl-12">w6</span><span class="hl-2"> · </span><span class="hl-12">abbreviationSignal</span>
 </code><button>Copy</button></pre>
 
-<p>Each factor is independent and multiplicative:</p>
+<p>using FITTED_WEIGHTS. This replaced a hand-picked equal-weight
+product of the same five multiplicative sub-scores (see
+<a href="content_utils_wordSimplifier.getComplexityFeatures.html" class="tsd-kind-function">getComplexityFeatures</a>) — the ridge fit found how much each
+factor should actually count instead of assuming an exponent of 1 for
+all of them, and added abbreviationSignal as a sixth feature to
+fix single-letter tokens (see the removed-guard note below).</p>
+<p>Each of the five logged factors is independent:</p>
 <ul>
-<li>rarityScore   — how uncommon the word is in general English</li>
+<li><a href="content_utils_wordSimplifier.wordRarity.html" class="tsd-kind-function">wordRarity</a>    — how uncommon the word is in general English</li>
 <li>syllableScore — proxy for decoding difficulty</li>
 <li>morphScore    — Latinate/formal suffixes signal academic register</li>
 <li>prefixScore   — Latinate/Greek prefixes signal technical register</li>
 <li>clusterScore  — rare consonant clusters signal phonological opacity</li>
 </ul>
-<p><code>pageFrequency</code> is intentionally absent — a complex word that appears many
-times in a technical article is still complex for a general reader. MeSH,
-NER, and pattern bonuses are also excluded because they rank topical
-importance, not reading difficulty.</p>
-<p>Words shorter than 2 characters always return <code>0</code> (single letters and
-punctuation fragments are never complex).</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
 <li><span><span class="tsd-kind-parameter">word</span>: <span class="tsd-signature-type">string</span></span>
-<div class="tsd-comment tsd-typography"><p>Word to score, any casing — normalised to lower-case internally.</p>
+<div class="tsd-comment tsd-typography"><p>Word to score, any casing — original casing matters for
+abbreviationSignal; lower-cased internally for the
+other five features.</p>
 </div></li>
 <li><span><span class="tsd-kind-parameter">freq</span>: <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></span>
 <div class="tsd-comment tsd-typography"><p>English frequency rank map from <code>englishFreq.json</code>.</p>
 </div></li></ul></div>
-<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4><p>Composite score ≥ 0. Compare against <a href="../variables/content_utils_wordSimplifier.COMPLEXITY_THRESHOLDS.html" class="tsd-kind-variable">COMPLEXITY_THRESHOLDS</a>.</p>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4><p>Composite score. Compare against <a href="../variables/content_utils_wordSimplifier.COMPLEXITY_THRESHOLDS.html" class="tsd-kind-variable">COMPLEXITY_THRESHOLDS</a>
+(pending recalibration — see that constant's doc comment).</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/2e58fbb301e758df09b9d41a54627d52dd30418a/text-reader-app/frontend/src/content/utils/wordSimplifier.ts#L287">content/utils/wordSimplifier.ts:287</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/BonitaText/Bonita/blob/8fff76b11714b8efabffdf0962d270d68b0d7192/text-reader-app/frontend/src/content/utils/wordSimplifier.ts#L403">content/utils/wordSimplifier.ts:403</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
