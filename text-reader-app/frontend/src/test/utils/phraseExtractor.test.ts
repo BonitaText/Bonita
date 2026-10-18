@@ -11,16 +11,28 @@
  *  2. extractKeywords no longer accepts a maxTerms argument; the two tests
  *     that exercised that parameter have been removed.
  *
- *  3. scoreTerm bonus multipliers changed:
- *       patternBonus  1.5 → 2
- *       nerBonus      1.2 → 2
- *       acronymBonus  1.3 → 2
- *     The combined-bonuses test is updated: mesh(1.5) × pattern(2) × ner(2) ×
- *     acronym(2) = 12×, so all / none ≈ 12.
+ *  3. scoreTerm is now freqScore × difficulty × importance, where
+ *       difficulty = 1 + max(0, scoreComplexity(term))
+ *       importance = 1 + Σ log2(flag) over [meshWeight, patternBonus, nerBonus]
+ *     Flags are combined additively in log-space, not multiplied, so the old
+ *     "12×" combined-bonus assumption no longer holds. acronymBonus is still
+ *     computed by getTermFeatures (for eval/fitKeywordWeights.ts) but is
+ *     excluded from importance, so recognising an acronym does not change
+ *     the score.
  *
  *  4. extractAcronyms emits tokens with count >= 1 (not >= 2).  The "appears
  *     more than once" tests are now "appears at least once", and the
  *     "only once → excluded" tests are removed.
+ *
+ *  5. getBodyParagraphs now delegates to collectBlockElements (contentRoot.ts)
+ *     plus isCaptionOrCredit. Consequences for these tests:
+ *       • <blockquote> is deliberately treated as body prose (it is in
+ *         BLOCK_TAGS, not BLOCKED_TAGS); short pull quotes are still dropped
+ *         by the minWords: 30 floor.
+ *       • Root resolution (main > article > ... > body) lives in
+ *         getContentRoot(), which caches its result. The getBodyParagraphs
+ *         block therefore calls invalidateContentRootCache() in beforeEach so
+ *         tests don't depend on run order.
  *
  * ── How to add / remove tests ─────────────────────────────────────────────
  *
@@ -39,10 +51,12 @@ import {
   hasContentToken,
   isFalseCapital,
   scoreTerm,
+  getTermFeatures,
   extractAcronyms,
   extractComplexWords,
   getBodyParagraphs,
 } from '../../content/utils/phraseExtractor'
+import { invalidateContentRootCache } from '../../content/utils/contentRoot'
 
 import { scoreComplexity } from '@/content/utils/wordSimplifier'
 
@@ -189,11 +203,12 @@ describe('isFalseCapital', () => {
 // ---------------------------------------------------------------------------
 // scoreTerm
 //
-// Bonus multipliers in the current source:
-//   meshWeight    — from MESH map (e.g. 1.5 for apoptosis)
-//   patternBonus  — 2 if in scienceTerms, else 1
-//   nerBonus      — 2 if in nerTerms,     else 1
-//   acronymBonus  — 2 if in acronyms,     else 1
+// scoreTerm(term, ...) = log2(pageFreq + 1) × difficulty × importance
+//   difficulty    — 1 + max(0, scoreComplexity(term, freq))
+//   importance    — 1 + log2(meshWeight) + log2(patternBonus) + log2(nerBonus)
+//                   (patternBonus / nerBonus are 2 if flagged, else 1;
+//                    meshWeight comes from the MESH map, else 1;
+//                    acronymBonus is NOT part of importance)
 // ---------------------------------------------------------------------------
 
 describe('scoreTerm', () => {
@@ -221,10 +236,15 @@ describe('scoreTerm', () => {
     expect(withNer).toBeGreaterThan(base)
   })
 
-  it('increases score when term is a recognised acronym', () => {
+  it('does not change the score for a recognised acronym (acronymBonus is excluded from importance)', () => {
     const base        = scoreTerm('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set())
     const withAcronym = scoreTerm('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set(['who']))
-    expect(withAcronym).toBeGreaterThan(base)
+    expect(withAcronym).toBeCloseTo(base, 10)
+  })
+
+  it('still records acronymBonus as a feature for the eval script', () => {
+    const f = getTermFeatures('who', 5, NO_MESH, FREQ, new Set(), new Set(), new Set(['who']))
+    expect(f.acronymBonus).toBe(2)
   })
 
   it('increases score with higher page frequency (log-scaled)', () => {
@@ -234,26 +254,24 @@ describe('scoreTerm', () => {
   })
 
   /**
-   * All bonuses applied together:
-   *   meshWeight(1.5) × patternBonus(2) × nerBonus(2) × acronymBonus(2) = 12×
+   * importance = 1 + Σ log2(flag) over [meshWeight, patternBonus, nerBonus].
+   * mesh 1.5 + pattern 2 + ner 2  →  1 + 0.585 + 1 + 1 ≈ 3.585 (not 12×).
+   * Difficulty and frequency are identical across both calls, so the score
+   * ratio equals the importance ratio.
    */
-  it('applies all bonuses multiplicatively when all signals are present', () => {
+  it('combines MeSH, pattern and NER flags additively in log-space', () => {
     const none = scoreTerm('apoptosis', 5, NO_MESH, FREQ, new Set(), new Set(), new Set())
     const all  = scoreTerm(
       'apoptosis', 5, MESH, FREQ,
-      new Set(['apoptosis']),
-      new Set(['apoptosis']),
-      new Set(['apoptosis']),
+      new Set(['apoptosis']), new Set(['apoptosis']), new Set(),
     )
-    // all bonuses present lifts score — verify each signal contributes
-    const withMeshOnly = scoreTerm('apoptosis', 5, MESH, FREQ, new Set(), new Set(), new Set())
-    expect(withMeshOnly).toBeGreaterThan(none)
-    expect(all).toBeGreaterThan(withMeshOnly)
+    expect(all / none).toBeCloseTo(1 + Math.log2(1.5) + 1 + 1, 4)
   })
 
-  it('returns log2(pageFreq + 1) as the base frequency component', () => {
+  it('returns log2(pageFreq + 1) × (1 + max(0, complexity)) for an unflagged term', () => {
     const score = scoreTerm('xyzzy', 4, NO_MESH, FREQ, new Set(), new Set(), new Set())
-    expect(score).toBeCloseTo(Math.log2(5) * scoreComplexity('xyzzy', FREQ), 4)
+    const difficulty = 1 + Math.max(0, scoreComplexity('xyzzy', FREQ))
+    expect(score).toBeCloseTo(Math.log2(5) * difficulty, 4)
   })
 })
 
@@ -404,10 +422,18 @@ describe('extractComplexWords', () => {
 
 // ---------------------------------------------------------------------------
 // getBodyParagraphs — DOM-dependent
+//
+// Delegates to collectBlockElements({ minWords: 30 }) + isCaptionOrCredit.
+// getContentRoot() caches its result, so the cache is reset before every
+// test — otherwise the "falls back to <body>" test would leak a cached body
+// root into every test after it.
 // ---------------------------------------------------------------------------
 
 describe('getBodyParagraphs', () => {
-  beforeEach(() => { document.body.innerHTML = '' })
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    invalidateContentRootCache()
+  })
 
   /** Builds a paragraph string with at least 30 tokens. */
   function longPara(seed = 'word'): string {
@@ -465,13 +491,26 @@ describe('getBodyParagraphs', () => {
     expect(getBodyParagraphs()).toHaveLength(1)
   })
 
-  it('excludes <p> tags nested inside <blockquote>', () => {
+  it('includes <p> tags nested inside <blockquote> (blockquotes are body prose; short pull quotes are filtered by minWords)', () => {
     document.body.innerHTML = `
       <main>
         <p>${longPara('body')}</p>
         <blockquote><p>${longPara('quote')}</p></blockquote>
       </main>`
-    expect(getBodyParagraphs()).toHaveLength(1)
+    const result = getBodyParagraphs()
+    expect(result).toHaveLength(2)
+    expect(result[1]).toContain('quote0')
+  })
+
+  it('excludes short pull quotes inside <blockquote> (< 30 tokens)', () => {
+    document.body.innerHTML = `
+      <main>
+        <p>${longPara('body')}</p>
+        <blockquote><p>A short pull quote.</p></blockquote>
+      </main>`
+    const result = getBodyParagraphs()
+    expect(result).toHaveLength(1)
+    expect(result[0]).toContain('body0')
   })
 
   it('excludes <p> tags nested inside <table>', () => {
@@ -484,6 +523,8 @@ describe('getBodyParagraphs', () => {
   })
 
   it('prefers <main> over <article> when both are present', () => {
+    // <main> must contain >= 200 chars of text to be accepted as the root
+    // (MIN_ROOT_CHARS in contentRoot.ts); longPara() is well over that.
     document.body.innerHTML = `
       <article><p>${longPara('article')}</p></article>
       <main><p>${longPara('main')}</p></main>`

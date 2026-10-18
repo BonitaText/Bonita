@@ -44,6 +44,8 @@
  * inline on each span.
  */
 import nlp from 'compromise'
+import { getCachedPosParse, setCachedPosParse } from './analysisCache'
+import { walkTextNodes, isBonitaUI } from './contentRoot'
 
 const MARKER_CLASS = 'bonita-pos-wrapper'
 const STYLE_ID = 'bonita-pos-styles'
@@ -74,16 +76,6 @@ const POS_LABEL: Record<POSTag, string> = {
 // Highlight background colours (softer than solid text colour)
 const HIGHLIGHT_ALPHA = '33' // hex ~20% opacity suffix
 
-const ALLOWED_TEXT_TAGS = new Set([
-  'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'blockquote', 'article', 'main', 'section', 'div', 'span',
-])
-
-const BLOCKED_TAGS = new Set([
-  'script', 'style', 'noscript', 'textarea', 'input',
-  'code', 'pre', 'nav', 'header', 'footer', 'aside',
-  'button', 'table', 'select', 'svg',
-])
 
 /**
  * Injects a single `<style>` tag that drives the POS label badges via
@@ -190,48 +182,34 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Determines whether a text node's parent element should be excluded from POS highlighting.
+ * Determines whether a text node's parent element should be excluded from
+ * POS highlighting.
  *
- * Returns `true` (skip) in any of these cases:
- * - The parent is `null`.
- * - The parent is inside Bonita's own UI chrome (`#bonita-root`, `.bonita-dock`, etc.).
- * - Any ancestor element is in {@link BLOCKED_TAGS} (e.g. `<script>`, `<code>`, `<nav>`).
- * - No ancestor element is in {@link ALLOWED_TEXT_TAGS}, meaning the text sits outside
- *   recognised prose containers.
+ * Delegates the "is this Bonita's own UI" check to {@link isBonitaUI} from
+ * `contentRoot.ts` so the exclusion list lives in one place. The
+ * "must sit inside recognised prose" and "blocked tag ancestor" checks are
+ * now handled by {@link walkTextNodes}'s default `requireAllowedAncestor`
+ * behaviour, so this function only needs the Bonita-UI check.
  *
- * @param parent  The direct parent `Element` of the text node being evaluated, or `null`.
- * @returns       `true` if the text node should be skipped, `false` if it should be highlighted.
+ * @param parent - The direct parent `Element` of the text node, or `null`.
+ * @returns `true` if the text node should be skipped.
  */
 function shouldSkip(parent: Element | null): boolean {
-  if (!parent) return true
-  if (parent.closest('#bonita-root, .bonita-dock, .bonita-trigger, .bonita-font-popup')) {
-    return true
-  }
-  let inAllowed = false
-  let cursor: Element | null = parent
-  while (cursor) {
-    const tag = cursor.tagName.toLowerCase()
-    if (BLOCKED_TAGS.has(tag)) return true
-    if (ALLOWED_TEXT_TAGS.has(tag)) inAllowed = true
-    cursor = cursor.parentElement
-  }
-  return !inAllowed
+  return isBonitaUI(parent)
 }
 
 /**
- * Walks the document body and wraps recognised POS terms in highlight spans.
+ * Walks the document and wraps recognised POS terms in highlight spans.
  *
- * For each eligible text node (determined by {@link shouldSkip} and a minimum
- * length threshold), the text is parsed with compromise and each term is tested
- * against the enabled categories. Matching terms are replaced with a `<span>`
- * that carries a coloured underline/background. The POS label badge (`v`, `n`,
- * `a`) is rendered exclusively via a CSS `::before` pseudo-element — it has no
- * DOM text node and is therefore invisible to TTS engines, clipboard copy, and
- * `textContent` reads. Any previous highlight pass is removed first via
- * {@link removePOSHighlight}.
+ * The `compromise` parse for each text node is checked against
+ * `analysisCache.ts` first (keyed by the node's exact text content) before
+ * calling `nlp()` — tags don't depend on `colors`/`enabled`, only the
+ * rendering does, so a colour-only settings change reuses every cached
+ * parse instead of re-running NLP across the whole page. See
+ * `analysisCache.ts`'s header.
  *
- * @param colors   Hex colour strings for each POS category, sourced from user settings.
- * @param enabled  Which POS categories should be highlighted in this pass.
+ * @param colors  - Hex colour strings for each POS category.
+ * @param enabled - Which POS categories should be highlighted in this pass.
  */
 export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
   removePOSHighlight()
@@ -239,26 +217,26 @@ export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
 
   injectPOSStyles()
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => {
-      if (shouldSkip(node.parentElement)) return NodeFilter.FILTER_REJECT
-      if (!node.textContent || node.textContent.trim().length < 30) return NodeFilter.FILTER_REJECT
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
-
   const textNodes: Text[] = []
-  let current: Node | null
-  while ((current = walker.nextNode())) {
-    textNodes.push(current as Text)
-  }
+  walkTextNodes(
+    (node) => {
+      if (shouldSkip(node.parentElement)) return
+      textNodes.push(node)
+    },
+    { minLength: 30 },
+  )
 
   for (const textNode of textNodes) {
     const text = textNode.textContent || ''
     if (text.trim().length < 3) continue
 
-    const doc = nlp(text)
-    const sentences: any[] = doc.json({ terms: { text: true, tags: true, whitespace: true } })
+    let sentences = getCachedPosParse(text)
+    if (!sentences) {
+      const doc = nlp(text)
+      sentences = doc.json({ terms: { text: true, tags: true, whitespace: true } })
+      setCachedPosParse(text, sentences)
+    }
+    if (!sentences) continue
 
     let html = ''
     let touched = false
@@ -273,8 +251,6 @@ export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
         if (tag) {
           const color = colors[tag]
           const label = POS_LABEL[tag]
-          // The label is rendered by CSS ::before using data-label and --pos-color.
-          // No child text node exists for it, so TTS and clipboard see only the word.
           html += `${pre}<span
             class="${MARKER_CLASS}"
             data-pos="${tag}"
@@ -300,6 +276,7 @@ export function applyPOSHighlight(colors: POSColors, enabled: POSEnabled) {
     textNode.replaceWith(fragment)
   }
 }
+
 
 /**
  * Removes all POS highlight spans injected by {@link applyPOSHighlight} and

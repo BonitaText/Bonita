@@ -37,6 +37,16 @@ vi.mock('compromise', () => ({
   }),
 }))
 
+// ─── analysisCache mock ──────────────────────────────────────────────────────
+// applyPOSHighlight caches parses keyed by exact text content. Every test here
+// reuses the same sentence with different mockTerms, so a real cache would
+// serve the first test's parse to all later tests. Disable it so each test's
+// mockTerms are actually used.
+vi.mock('../../content/utils/analysisCache', () => ({
+  getCachedPosParse: (_text: string) => null,
+  setCachedPosParse: (_text: string, _parse: unknown) => {},
+}))
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const MARKER_CLASS = 'bonita-pos-wrapper'
